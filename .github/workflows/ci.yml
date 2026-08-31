@@ -1,0 +1,62 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18.6-bookworm
+        env:
+          POSTGRES_DB: finance_ai_test
+          POSTGRES_USER: finance_ai
+          POSTGRES_PASSWORD: change-me-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finance_ai -d finance_ai_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      FINANCE_AI_ENVIRONMENT: test
+      FINANCE_AI_DATABASE_URL: postgresql+psycopg://finance_ai:change-me-ci@127.0.0.1:5432/finance_ai_test
+      FINANCE_AI_TEST_DATABASE_URL: postgresql+psycopg://finance_ai:change-me-ci@127.0.0.1:5432/finance_ai_test
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Resolve locked dependencies
+        run: uv sync --all-groups --frozen
+      - name: Format, lint, and type-check
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy src
+      - name: Verify migrations, seed, and model drift
+        run: |
+          uv run alembic upgrade head
+          uv run python -m finance_ai.db.seeds
+          uv run alembic check
+      - name: Verify generated OpenAPI
+        run: |
+          uv run python scripts/export_openapi.py
+          git diff --exit-code -- openapi.json
+      - name: Run tests with coverage
+        run: uv run pytest --cov=finance_ai --cov-report=term-missing
+      - name: Audit locked dependencies
+        run: uv run pip-audit

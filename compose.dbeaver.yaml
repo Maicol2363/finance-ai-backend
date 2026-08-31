@@ -1,0 +1,7 @@
+services:
+  database:
+    ports:
+      - "127.0.0.1:${POSTGRES_VIEWER_PORT:-55432}:5432"
+    networks:
+      - private
+      - client-access

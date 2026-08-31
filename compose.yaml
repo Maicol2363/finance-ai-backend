@@ -1,0 +1,86 @@
+name: finance-ai-backend
+
+services:
+  database:
+    image: postgres:18.6-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-finance_ai}
+      POSTGRES_USER: ${POSTGRES_USER:-finance_ai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local}
+      POSTGRES_VIEWER_PASSWORD: ${POSTGRES_VIEWER_PASSWORD:-change-me-viewer-local}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - private
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    environment:
+      FINANCE_AI_ENVIRONMENT: local
+      FINANCE_AI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-finance_ai}:${POSTGRES_PASSWORD:-change-me-local}@database:5432/${POSTGRES_DB:-finance_ai}
+      FINANCE_AI_LOG_LEVEL: ${FINANCE_AI_LOG_LEVEL:-INFO}
+      FINANCE_AI_REGISTRATION_PER_MINUTE: ${FINANCE_AI_REGISTRATION_PER_MINUTE:-10}
+      FINANCE_AI_REGISTRATION_BURST_PER_10_SECONDS: ${FINANCE_AI_REGISTRATION_BURST_PER_10_SECONDS:-3}
+      FINANCE_AI_REGISTRATION_GLOBAL_PER_MINUTE: ${FINANCE_AI_REGISTRATION_GLOBAL_PER_MINUTE:-100}
+      FINANCE_AI_LOGIN_PER_MINUTE: ${FINANCE_AI_LOGIN_PER_MINUTE:-10}
+      FINANCE_AI_LOGIN_BURST_PER_10_SECONDS: ${FINANCE_AI_LOGIN_BURST_PER_10_SECONDS:-5}
+      FINANCE_AI_LOGIN_ACCOUNT_PER_MINUTE: ${FINANCE_AI_LOGIN_ACCOUNT_PER_MINUTE:-5}
+      FINANCE_AI_LOGIN_GLOBAL_PER_MINUTE: ${FINANCE_AI_LOGIN_GLOBAL_PER_MINUTE:-300}
+      FINANCE_AI_REFRESH_PER_MINUTE: ${FINANCE_AI_REFRESH_PER_MINUTE:-30}
+      FINANCE_AI_REFRESH_GLOBAL_PER_MINUTE: ${FINANCE_AI_REFRESH_GLOBAL_PER_MINUTE:-1000}
+      FINANCE_AI_SESSION_LIMITER_SECRET: ${FINANCE_AI_SESSION_LIMITER_SECRET:-change-me-local-session-limiter}
+      FINANCE_AI_ACCESS_LIFETIME_MINUTES: ${FINANCE_AI_ACCESS_LIFETIME_MINUTES:-15}
+      FINANCE_AI_RENEWABLE_IDLE_LIFETIME_DAYS: ${FINANCE_AI_RENEWABLE_IDLE_LIFETIME_DAYS:-30}
+      FINANCE_AI_SESSION_ABSOLUTE_LIFETIME_DAYS: ${FINANCE_AI_SESSION_ABSOLUTE_LIFETIME_DAYS:-90}
+      FINANCE_AI_MAX_ACTIVE_SESSIONS_PER_USER: ${FINANCE_AI_MAX_ACTIVE_SESSIONS_PER_USER:-10}
+      FINANCE_AI_TERMINAL_SESSION_RETENTION_DAYS: ${FINANCE_AI_TERMINAL_SESSION_RETENTION_DAYS:-30}
+    command:
+      - /bin/sh
+      - -c
+      - alembic upgrade head && python -m finance_ai.db.seeds && exec uvicorn finance_ai.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - private
+      - client-access
+
+  test:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    environment:
+      FINANCE_AI_ENVIRONMENT: test
+      FINANCE_AI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-finance_ai}:${POSTGRES_PASSWORD:-change-me-local}@database:5432/finance_ai_test
+      FINANCE_AI_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-finance_ai}:${POSTGRES_PASSWORD:-change-me-local}@database:5432/finance_ai_test
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - private
+
+networks:
+  private:
+    driver: bridge
+    internal: true
+  client-access:
+    driver: bridge
+
+volumes:
+  postgres-data:
