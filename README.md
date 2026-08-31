@@ -17,6 +17,6 @@ From this directory:
 
 Start the standalone API and private PostgreSQL database with `docker compose up --build -d`. Run `docker compose --profile test run --rm test pytest -m integration` for real PostgreSQL integration tests. Never commit a real `.env`.
 
-Project documentation and cross-repository orchestration live in `NullCorvus/finance-ai`. The Android/Windows client lives in `NullCorvus/finance-ai-frontend`. This repository owns the generated `openapi.json` contract.
+Project documentation and cross-repository orchestration live in `NullCorvus/finance-ai`. The Android/Windows client lives in `Maicol2363/finance-ai-frontend`. This repository owns the generated `openapi.json` contract.
 
 The public identity endpoints are `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `GET /api/v1/auth/me`, and `POST /api/v1/auth/logout`. Access credentials expire after 15 minutes; renewable credentials rotate, are bounded by 30-day idle and 90-day absolute lifetimes, and are never persisted in plaintext. The default maximum is ten active sessions per user.

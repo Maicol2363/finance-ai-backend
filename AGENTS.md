@@ -1,6 +1,6 @@
 # Finance AI Backend Agent Guide
 
-This repository owns the FastAPI service, PostgreSQL persistence, migrations, seeds, the versioned OpenAPI contract, and backend tests. Product requirements and architecture decisions live in `NullCorvus/finance-ai`; the Flutter client lives in `NullCorvus/finance-ai-frontend`.
+This repository owns the FastAPI service, PostgreSQL persistence, migrations, seeds, the versioned OpenAPI contract, and backend tests. Product requirements and architecture decisions live in `NullCorvus/finance-ai`; the Flutter client lives in `Maicol2363/finance-ai-frontend`.
 
 ## Mandatory error and privacy contract
 
