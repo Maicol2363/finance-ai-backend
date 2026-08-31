@@ -1,0 +1,1 @@
+"""Finance AI backend package."""
