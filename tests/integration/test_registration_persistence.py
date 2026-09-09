@@ -189,12 +189,14 @@ def test_concurrent_normalized_duplicate_creates_exactly_one_user() -> None:
         assert session.scalar(select(func.count()).select_from(IncomeSource)) == 2
 
 
-def test_current_schema_adds_sessions_without_creating_later_financial_or_ai_tables() -> None:
+def test_current_schema_adds_accounts_without_creating_later_expense_or_ai_tables() -> None:
     with get_session_factory()() as session:
         names = {
             name
             for name in (
                 "account",
+                "account_movement",
+                "financial_transaction",
                 "subcategory",
                 "user_session",
                 "renewable_credential",
@@ -204,7 +206,13 @@ def test_current_schema_adds_sessions_without_creating_later_financial_or_ai_tab
             is not None
         }
 
-    assert names == {"user_session", "renewable_credential"}
+    assert names == {
+        "account",
+        "account_movement",
+        "financial_transaction",
+        "user_session",
+        "renewable_credential",
+    }
 
 
 def test_session_check_constraint_names_match_model_metadata() -> None:

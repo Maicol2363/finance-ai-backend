@@ -6,9 +6,12 @@ from sqlalchemy import engine_from_config, pool
 from finance_ai.core.config import get_settings
 from finance_ai.db.base import Base
 from finance_ai.db.models import (
+    Account,
+    AccountMovement,
     AppUser,
     Category,
     Currency,
+    FinancialTransaction,
     IncomeSource,
     PaymentMethod,
     RenewableCredential,
@@ -16,9 +19,12 @@ from finance_ai.db.models import (
 )
 
 _MODELS = (
+    Account,
+    AccountMovement,
     AppUser,
     Category,
     Currency,
+    FinancialTransaction,
     IncomeSource,
     PaymentMethod,
     RenewableCredential,

@@ -140,6 +140,69 @@ class ServiceUnavailableError(AppError):
         )
 
 
+class AccountNameConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_name_conflict",
+            title="Account name is already in use",
+            detail="Choose a different name for this active account.",
+            field_errors={"name": ["An active account already uses this name."]},
+        )
+
+
+class AccountCurrencyInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="account_currency_invalid",
+            title="Currency is unavailable",
+            detail="Select a currently supported currency.",
+            field_errors={"currency_code": ["Select a currently supported currency."]},
+        )
+
+
+class AccountNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="account_not_found",
+            title="Account not found",
+            detail="The requested account is unavailable.",
+        )
+
+
+class AccountCurrencyLockedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_currency_locked",
+            title="Account currency cannot be changed",
+            detail="Currency cannot change after confirmed activity exists.",
+            field_errors={"currency_code": ["Currency is locked for this account."]},
+        )
+
+
+class AccountReactivationConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_reactivation_conflict",
+            title="Account cannot be reactivated",
+            detail="Update the account details before reactivating it.",
+        )
+
+
+class AccountDeleteBlockedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_delete_blocked",
+            title="Account cannot be permanently deleted",
+            detail="This account has financial activity. Deactivate it to preserve its history.",
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 
