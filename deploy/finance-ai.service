@@ -1,0 +1,52 @@
+# ──────────────────────────────────────────────
+# Finance AI Backend — systemd service
+# ──────────────────────────────────────────────
+# Install: sudo cp finance-ai.service /etc/systemd/system/
+# Enable:  sudo systemctl enable finance-ai-backend
+# Start:   sudo systemctl start finance-ai-backend
+# Status:  sudo systemctl status finance-ai-backend
+# Logs:    journalctl -u finance-ai-backend -f
+# ──────────────────────────────────────────────
+
+[Unit]
+Description=Finance AI Backend — FastAPI production service
+After=network.target postgresql.service
+Requires=postgresql.service
+Documentation=https://github.com/Maicol2363/finance-ai-backend
+
+[Service]
+Type=simple
+User=finance-ai
+Group=finance-ai
+# Source code: the repo is cloned to /opt/finance-ai
+# .env lives at /opt/finance-ai/.env (NOT in the repo)
+# uv sync creates .venv in /opt/finance-ai/
+WorkingDirectory=/opt/finance-ai
+
+# uv-managed venv
+Environment=PATH=/opt/finance-ai/.venv/bin:/usr/local/bin:/usr/bin
+EnvironmentFile=/opt/finance-ai/.env
+
+ExecStart=/opt/finance-ai/.venv/bin/uvicorn \
+    finance_ai.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --log-level info \
+    --no-access-log
+
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+# Security hardening
+ProtectSystem=full
+ProtectHome=tmpfs
+PrivateTmp=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
