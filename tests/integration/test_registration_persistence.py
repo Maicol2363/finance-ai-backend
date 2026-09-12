@@ -26,7 +26,7 @@ from finance_ai.core.errors import (
     EmailAlreadyRegisteredError,
     SessionInvalidError,
 )
-from finance_ai.db.models.catalogs import Category, IncomeSource, PaymentMethod
+from finance_ai.db.models.catalogs import Category, IncomeSource
 from finance_ai.db.models.identity import AppUser
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
@@ -71,10 +71,7 @@ def migrated_database() -> None:
 def clean_registration_data(migrated_database: None) -> None:
     with get_session_factory()() as session:
         session.execute(
-            text(
-                "TRUNCATE TABLE income_source, payment_method, category, app_user "
-                "RESTART IDENTITY CASCADE"
-            )
+            text("TRUNCATE TABLE income_source, category, app_user RESTART IDENTITY CASCADE")
         )
         session.commit()
 
@@ -120,9 +117,6 @@ def test_registration_persists_one_owner_and_exact_catalogs() -> None:
         categories = session.scalars(
             select(Category).where(Category.user_id == user_id).order_by(Category.id)
         ).all()
-        payment_methods = session.scalars(
-            select(PaymentMethod).where(PaymentMethod.user_id == user_id).order_by(PaymentMethod.id)
-        ).all()
         income_sources = session.scalars(
             select(IncomeSource).where(IncomeSource.user_id == user_id).order_by(IncomeSource.id)
         ).all()
@@ -132,13 +126,10 @@ def test_registration_persists_one_owner_and_exact_catalogs() -> None:
     assert user.preferred_currency.code == "COP"
     assert user.password_hash.startswith("$argon2id$")
     assert [item.name for item in categories] == list(REGISTRATION_CATALOG_TEMPLATE.categories)
-    assert [item.name for item in payment_methods] == list(
-        REGISTRATION_CATALOG_TEMPLATE.payment_methods
-    )
     assert [item.name for item in income_sources] == list(
         REGISTRATION_CATALOG_TEMPLATE.income_sources
     )
-    assert {item.user_id for item in categories + payment_methods + income_sources} == {user_id}
+    assert {item.user_id for item in [*categories, *income_sources]} == {user_id}
 
 
 def test_catalog_failure_rolls_back_user_and_all_staged_rows() -> None:
@@ -166,7 +157,6 @@ def test_catalog_failure_rolls_back_user_and_all_staged_rows() -> None:
     with get_session_factory()() as session:
         assert session.scalar(select(func.count()).select_from(AppUser)) == 0
         assert session.scalar(select(func.count()).select_from(Category)) == 0
-        assert session.scalar(select(func.count()).select_from(PaymentMethod)) == 0
         assert session.scalar(select(func.count()).select_from(IncomeSource)) == 0
 
 
@@ -185,7 +175,6 @@ def test_concurrent_normalized_duplicate_creates_exactly_one_user() -> None:
     with get_session_factory()() as session:
         assert session.scalar(select(func.count()).select_from(AppUser)) == 1
         assert session.scalar(select(func.count()).select_from(Category)) == 3
-        assert session.scalar(select(func.count()).select_from(PaymentMethod)) == 3
         assert session.scalar(select(func.count()).select_from(IncomeSource)) == 2
 
 
@@ -197,6 +186,7 @@ def test_current_schema_adds_accounts_without_creating_later_expense_or_ai_table
                 "account",
                 "account_movement",
                 "financial_transaction",
+                "payment_method",
                 "subcategory",
                 "user_session",
                 "renewable_credential",
