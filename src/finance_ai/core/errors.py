@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from finance_ai.core.logging import get_logger
 
@@ -261,6 +262,32 @@ def install_exception_handlers(app: FastAPI) -> None:
         else:
             error = RequestInvalidError(_validation_field_errors(exc))
         return await app_error_handler(request, error)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        if exc.status_code == 404:
+            code = "route_not_found"
+            title = "Resource not found"
+            detail = "The requested resource is unavailable."
+        elif exc.status_code == 405:
+            code = "method_not_allowed"
+            title = "Method not allowed"
+            detail = "This request method is not supported for the resource."
+        else:
+            code = "http_error"
+            title = "Request failed"
+            detail = "The request could not be completed."
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content=problem_payload(
+                status=exc.status_code,
+                code=code,
+                title=title,
+                detail=detail,
+                correlation_id=correlation_id_from(request),
+            ),
+        )
 
     @app.exception_handler(Exception)
     async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:

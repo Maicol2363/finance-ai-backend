@@ -188,6 +188,7 @@ def test_missing_and_foreign_account_failure_is_stable_and_safe(
         {},
         {"name": None},
         {"opening_balance": 12.34},
+        {"opening_balance": 12},
         {"name": "Cash", "user_id": 7},
     ],
 )
@@ -225,6 +226,49 @@ def test_content_type_body_bound_and_delete_contract(
     assert removed.headers["x-correlation-id"] == "account-delete-1"
     assert ("delete", (42, 11)) in service.calls
     assert "delete" in create_app().openapi()["paths"]["/api/v1/accounts/{account_id}"]
+
+
+def test_openapi_matches_exact_money_patch_and_bearer_contract() -> None:
+    contract = create_app().openapi()
+    schemas = contract["components"]["schemas"]
+    create_balance = schemas["AccountCreateRequest"]["properties"]["opening_balance"]
+    update = schemas["AccountUpdateRequest"]["properties"]
+
+    assert create_balance["type"] == "string"
+    assert update["opening_balance"]["type"] == "string"
+    assert update["name"]["type"] == "string"
+    assert "anyOf" not in update["name"]
+    assert contract["components"]["securitySchemes"]["BearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Access credential returned by login or session refresh.",
+    }
+    assert contract["paths"]["/api/v1/accounts"]["get"]["security"] == [{"BearerAuth": []}]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status", "code"),
+    [
+        ("GET", "/api/v1/accounts/11/extra", 404, "route_not_found"),
+        ("POST", "/api/v1/accounts/11", 405, "method_not_allowed"),
+    ],
+)
+def test_unmatched_account_routes_use_safe_diagnostic_contract(
+    method: str, path: str, status: int, code: str
+) -> None:
+    with TestClient(create_app(), raise_server_exceptions=False) as client:
+        response = client.request(
+            method,
+            path,
+            json={} if method == "POST" else None,
+            headers={"X-Correlation-ID": "account-route-error"},
+        )
+
+    assert response.status_code == status
+    assert response.json()["code"] == code
+    assert response.json()["correlation_id"] == "account-route-error"
+    assert response.headers["x-correlation-id"] == "account-route-error"
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_delete_blocked_failure_is_stable_and_contains_no_financial_data(

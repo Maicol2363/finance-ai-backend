@@ -14,18 +14,26 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
 
-def _reject_binary_float(value: Any) -> Any:
-    if isinstance(value, float):
+def _parse_money_string(value: Any) -> Any:
+    if not isinstance(value, str):
         raise ValueError("Use a decimal string for money values")
     return value
 
 
 MoneyInput = Annotated[
     Decimal,
-    BeforeValidator(_reject_binary_float),
+    BeforeValidator(_parse_money_string),
     Field(max_digits=18, decimal_places=2),
+    WithJsonSchema(
+        {
+            "type": "string",
+            "pattern": r"^-?\d{1,16}(?:\.\d{1,2})?$",
+            "examples": ["0.00"],
+        }
+    ),
 ]
 
 
@@ -104,10 +112,10 @@ class AccountCreateRequest(BaseModel):
 class AccountUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    type: AccountType | None = None
-    currency_code: str | None = Field(default=None, min_length=3, max_length=10)
-    opening_balance: MoneyInput | None = None
+    name: Annotated[str, Field(min_length=1, max_length=100)] | SkipJsonSchema[None] = None
+    type: AccountType | SkipJsonSchema[None] = None
+    currency_code: Annotated[str, Field(min_length=3, max_length=10)] | SkipJsonSchema[None] = None
+    opening_balance: MoneyInput | SkipJsonSchema[None] = None
 
     @field_validator("name", "type", "currency_code", "opening_balance", mode="after")
     @classmethod

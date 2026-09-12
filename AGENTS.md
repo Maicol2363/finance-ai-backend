@@ -2,6 +2,12 @@
 
 This repository owns the FastAPI service, PostgreSQL persistence, migrations, seeds, the versioned OpenAPI contract, and backend tests. Product requirements and architecture decisions live in `NullCorvus/finance-ai`; the Flutter client lives in `Maicol2363/finance-ai-frontend`.
 
+## Branch workflow
+
+- Start story branches from `develop` and target `develop` in feature pull requests.
+- Merge `develop` into `main` only for fully tested, release-ready work.
+- Preserve completed feature branches unless the team explicitly chooses to remove them.
+
 ## Mandatory error and privacy contract
 
 - Every public failure uses a stable machine-readable code, a safe plain-language detail, and the request/correlation ID.
