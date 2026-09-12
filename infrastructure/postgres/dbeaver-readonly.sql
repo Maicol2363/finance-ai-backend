@@ -37,10 +37,6 @@ CREATE OR REPLACE VIEW finance_ai_view.category AS
 SELECT id, user_id, name, is_active, created_at, updated_at
 FROM public.category;
 
-CREATE OR REPLACE VIEW finance_ai_view.payment_method AS
-SELECT id, user_id, name, is_active, created_at, updated_at
-FROM public.payment_method;
-
 CREATE OR REPLACE VIEW finance_ai_view.income_source AS
 SELECT id, user_id, name, is_active, created_at, updated_at
 FROM public.income_source;
@@ -53,7 +49,6 @@ SELECT
     app_user.is_active,
     app_user.created_at,
     (SELECT count(*) FROM public.category WHERE category.user_id = app_user.id) AS categories,
-    (SELECT count(*) FROM public.payment_method WHERE payment_method.user_id = app_user.id) AS payment_methods,
     (SELECT count(*) FROM public.income_source WHERE income_source.user_id = app_user.id) AS income_sources
 FROM public.app_user
 JOIN public.currency ON currency.id = app_user.preferred_currency_id;

@@ -35,10 +35,6 @@ class Category(OwnedCatalogMixin, Base):
     __tablename__ = "category"
 
 
-class PaymentMethod(OwnedCatalogMixin, Base):
-    __tablename__ = "payment_method"
-
-
 class IncomeSource(OwnedCatalogMixin, Base):
     __tablename__ = "income_source"
 
@@ -49,13 +45,6 @@ Index(
     func.lower(Category.name),
     unique=True,
     postgresql_where=Category.is_active.is_(True),
-)
-Index(
-    "uq_payment_method_active_name",
-    PaymentMethod.user_id,
-    func.lower(PaymentMethod.name),
-    unique=True,
-    postgresql_where=PaymentMethod.is_active.is_(True),
 )
 Index(
     "uq_income_source_active_name",

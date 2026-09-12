@@ -1,5 +1,5 @@
 from finance_ai.db.models.accounts import Account
-from finance_ai.db.models.catalogs import Category, IncomeSource, PaymentMethod
+from finance_ai.db.models.catalogs import Category, IncomeSource
 from finance_ai.db.models.identity import AppUser
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
@@ -13,7 +13,6 @@ __all__ = [
     "Currency",
     "FinancialTransaction",
     "IncomeSource",
-    "PaymentMethod",
     "RenewableCredential",
     "UserSession",
 ]
