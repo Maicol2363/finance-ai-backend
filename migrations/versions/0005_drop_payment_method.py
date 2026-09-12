@@ -8,7 +8,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0005_remove_legacy_payment_method"
+revision: str = "0005_drop_payment_method"
 down_revision: str | Sequence[str] | None = "0004_uow03_financial_accounts"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
