@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 from finance_ai.api.router import api_router
 from finance_ai.core.config import get_settings
@@ -18,6 +19,11 @@ def create_app() -> FastAPI:
     install_exception_handlers(app)
     app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_request_body_bytes)
     app.include_router(api_router)
+
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse(url="/docs", status_code=307)
+
     return app
 
 

@@ -51,7 +51,8 @@ services:
       - -c
       - alembic upgrade head && python -m finance_ai.db.seeds && exec uvicorn finance_ai.main:app --host 0.0.0.0 --port 8000
     ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+      # Allow the Flutter app on a phone to reach the API over the local Wi-Fi.
+      - "0.0.0.0:${API_PORT:-8000}:8000"
     depends_on:
       database:
         condition: service_healthy
