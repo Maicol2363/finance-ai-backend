@@ -34,7 +34,7 @@ SELECT id, code, name, decimals, is_active
 FROM public.currency;
 
 CREATE OR REPLACE VIEW finance_ai_view.category AS
-SELECT id, user_id, name, is_active, created_at, updated_at
+SELECT id, user_id, name, color, icon, sort_order, created_at, updated_at
 FROM public.category;
 
 CREATE OR REPLACE VIEW finance_ai_view.income_source AS
