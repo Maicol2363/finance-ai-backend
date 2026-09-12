@@ -75,6 +75,27 @@ SELECT
         AND absolute_expires_at > CURRENT_TIMESTAMP) AS is_active
 FROM public.user_session;
 
+CREATE OR REPLACE VIEW finance_ai_view.account AS
+SELECT
+    id,
+    user_id,
+    name,
+    type,
+    currency_id,
+    opening_balance,
+    is_active,
+    created_at,
+    updated_at
+FROM public.account;
+
+CREATE OR REPLACE VIEW finance_ai_view.financial_transaction AS
+SELECT id, user_id, type, status, occurred_at, capture_source, created_at, updated_at
+FROM public.financial_transaction;
+
+CREATE OR REPLACE VIEW finance_ai_view.account_movement AS
+SELECT id, user_id, transaction_id, account_id, amount, created_at
+FROM public.account_movement;
+
 REVOKE ALL ON SCHEMA finance_ai_view FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA finance_ai_view FROM PUBLIC;
 GRANT USAGE ON SCHEMA finance_ai_view TO finance_ai_viewer;

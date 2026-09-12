@@ -58,5 +58,7 @@ jobs:
           git diff --exit-code -- openapi.json
       - name: Run tests with coverage
         run: uv run pytest --cov=finance_ai --cov-report=term-missing
+      - name: Build source and wheel distributions
+        run: uv build
       - name: Audit locked dependencies
         run: uv run pip-audit
