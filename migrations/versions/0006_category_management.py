@@ -30,6 +30,10 @@ def upgrade() -> None:
         "category",
         sa.Column("sort_order", sa.Integer(), server_default="0", nullable=False),
     )
+    # HU-004 replaces category archiving with permanent deletion. Remove legacy
+    # archived rows before enforcing the new all-row uniqueness rule; otherwise
+    # an archived duplicate could either reappear or make this migration fail.
+    op.execute("DELETE FROM category WHERE is_active = false")
     op.execute(
         """
         WITH ranked AS (
@@ -71,10 +75,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     _drop_optional_readonly_view()
-    op.drop_constraint("ck_category_sort_order_non_negative", "category", type_="check")
-    op.drop_constraint("ck_category_icon_supported", "category", type_="check")
-    op.drop_constraint("ck_category_color_supported", "category", type_="check")
-    op.drop_constraint("ck_category_name_trimmed", "category", type_="check")
+    op.drop_constraint(op.f("ck_category_sort_order_non_negative"), "category", type_="check")
+    op.drop_constraint(op.f("ck_category_icon_supported"), "category", type_="check")
+    op.drop_constraint(op.f("ck_category_color_supported"), "category", type_="check")
+    op.drop_constraint(op.f("ck_category_name_trimmed"), "category", type_="check")
     op.drop_index("ix_category_user_sort", table_name="category")
     op.drop_index("uq_category_user_name", table_name="category")
     op.add_column(

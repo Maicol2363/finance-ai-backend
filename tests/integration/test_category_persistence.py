@@ -176,3 +176,35 @@ def test_category_constraints_and_indexes_are_installed() -> None:
         "ck_category_sort_order_non_negative",
     }
     assert {"uq_category_user_name", "ix_category_user_sort"} <= indexes
+
+
+def test_migration_permanently_removes_legacy_archived_categories() -> None:
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    alembic_command.downgrade(config, "0005_drop_payment_method")
+    try:
+        owner_id = create_user("legacy-categories@example.com")
+        with get_session_factory()() as session:
+            session.execute(
+                text(
+                    "INSERT INTO category "
+                    "(user_id, name, is_active, created_at, updated_at) VALUES "
+                    "(:owner_id, 'Travel', true, now(), now()), "
+                    "(:owner_id, 'travel', false, now(), now())"
+                ),
+                {"owner_id": owner_id},
+            )
+            session.commit()
+
+        alembic_command.upgrade(config, "head")
+
+        with get_session_factory()() as session:
+            rows = session.execute(
+                text(
+                    "SELECT name, sort_order FROM category "
+                    "WHERE user_id = :owner_id ORDER BY sort_order"
+                ),
+                {"owner_id": owner_id},
+            ).all()
+        assert rows == [("Travel", 0)]
+    finally:
+        alembic_command.upgrade(config, "head")

@@ -139,6 +139,41 @@ def test_category_auth_validation_and_safe_foreign_failure(
     assert denied.json()["code"] == "authentication_required"
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/api/v1/categories"),
+        ("PATCH", "/api/v1/categories/4"),
+        ("PUT", "/api/v1/categories/order"),
+    ],
+)
+def test_category_writes_require_json_and_enforce_the_body_limit(
+    category_client: tuple[TestClient, StubCategoryService], method: str, path: str
+) -> None:
+    client, service = category_client
+
+    wrong_type = client.request(
+        method,
+        path,
+        content="name=Food",
+        headers={"Content-Type": "text/plain"},
+    )
+    oversized = client.request(
+        method,
+        path,
+        content=b"{}",
+        headers={"Content-Type": "application/json", "Content-Length": "20000"},
+    )
+
+    assert wrong_type.status_code == 415
+    assert wrong_type.json()["code"] == "unsupported_media_type"
+    assert oversized.status_code == 413
+    assert oversized.json()["code"] == "request_too_large"
+    assert wrong_type.headers["cache-control"] == "no-store"
+    assert oversized.headers["cache-control"] == "no-store"
+    assert service.calls == []
+
+
 def test_category_openapi_has_owned_contract() -> None:
     contract = create_app().openapi()
     paths = contract["paths"]
