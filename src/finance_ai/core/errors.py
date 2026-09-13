@@ -204,6 +204,49 @@ class AccountDeleteBlockedError(AppError):
         )
 
 
+class CategoryNameConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="category_name_conflict",
+            title="Category name is already in use",
+            detail="Choose a different category name.",
+            field_errors={"name": ["A category already uses this name."]},
+        )
+
+
+class CategoryNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="category_not_found",
+            title="Category not found",
+            detail="The requested category is unavailable.",
+        )
+
+
+class CategoryAppearanceInvalidError(AppError):
+    def __init__(self, field: str) -> None:
+        super().__init__(
+            status=422,
+            code="category_appearance_invalid",
+            title="Category appearance is invalid",
+            detail="Choose a supported category appearance.",
+            field_errors={field: [f"Select a supported {field}."]},
+        )
+
+
+class CategoryOrderInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="category_order_invalid",
+            title="Category order is invalid",
+            detail="The order must include each of your categories exactly once.",
+            field_errors={"category_ids": ["Include each category exactly once."]},
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 

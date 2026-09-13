@@ -51,8 +51,22 @@ class SQLAlchemyCatalogRepository:
         self.session = session
 
     def add_defaults(self, *, user_id: int, template: RegistrationCatalogTemplate) -> None:
+        category_appearance = {
+            "Needs": ("blue", "essentials"),
+            "Wants": ("purple", "wants"),
+            "Other": ("gray", "other"),
+        }
         self.session.add_all(
-            [Category(user_id=user_id, name=name, is_active=True) for name in template.categories]
+            [
+                Category(
+                    user_id=user_id,
+                    name=name,
+                    color=category_appearance.get(name, ("blue", "other"))[0],
+                    icon=category_appearance.get(name, ("blue", "other"))[1],
+                    sort_order=sort_order,
+                )
+                for sort_order, name in enumerate(template.categories)
+            ]
         )
         self.session.add_all(
             [
