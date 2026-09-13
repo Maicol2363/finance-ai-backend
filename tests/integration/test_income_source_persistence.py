@@ -48,10 +48,7 @@ def migrated_database() -> None:
 def clean_income_source_data(migrated_database: None) -> None:
     with get_session_factory()() as session:
         session.execute(
-            text(
-                "TRUNCATE TABLE income_source, category, payment_method, app_user "
-                "RESTART IDENTITY CASCADE"
-            )
+            text("TRUNCATE TABLE income_source, category, app_user RESTART IDENTITY CASCADE")
         )
         session.commit()
 

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from finance_ai.auth.repositories import CurrencyRecord, UserRecord
 from finance_ai.core.errors import ServiceUnavailableError
-from finance_ai.db.models.catalogs import Category, IncomeSource, PaymentMethod
+from finance_ai.db.models.catalogs import Category, IncomeSource
 from finance_ai.db.models.identity import AppUser
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.seeds import RegistrationCatalogTemplate
@@ -51,13 +51,21 @@ class SQLAlchemyCatalogRepository:
         self.session = session
 
     def add_defaults(self, *, user_id: int, template: RegistrationCatalogTemplate) -> None:
-        self.session.add_all(
-            [Category(user_id=user_id, name=name, is_active=True) for name in template.categories]
-        )
+        category_appearance = {
+            "Needs": ("blue", "essentials"),
+            "Wants": ("purple", "wants"),
+            "Other": ("gray", "other"),
+        }
         self.session.add_all(
             [
-                PaymentMethod(user_id=user_id, name=name, is_active=True)
-                for name in template.payment_methods
+                Category(
+                    user_id=user_id,
+                    name=name,
+                    color=category_appearance.get(name, ("blue", "other"))[0],
+                    icon=category_appearance.get(name, ("blue", "other"))[1],
+                    sort_order=sort_order,
+                )
+                for sort_order, name in enumerate(template.categories)
             ]
         )
         self.session.add_all(

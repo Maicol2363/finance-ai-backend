@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from finance_ai.core.logging import get_logger
 
@@ -140,6 +141,112 @@ class ServiceUnavailableError(AppError):
         )
 
 
+class AccountNameConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_name_conflict",
+            title="Account name is already in use",
+            detail="Choose a different name for this active account.",
+            field_errors={"name": ["An active account already uses this name."]},
+        )
+
+
+class AccountCurrencyInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="account_currency_invalid",
+            title="Currency is unavailable",
+            detail="Select a currently supported currency.",
+            field_errors={"currency_code": ["Select a currently supported currency."]},
+        )
+
+
+class AccountNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="account_not_found",
+            title="Account not found",
+            detail="The requested account is unavailable.",
+        )
+
+
+class AccountCurrencyLockedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_currency_locked",
+            title="Account currency cannot be changed",
+            detail="Currency cannot change after confirmed activity exists.",
+            field_errors={"currency_code": ["Currency is locked for this account."]},
+        )
+
+
+class AccountReactivationConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_reactivation_conflict",
+            title="Account cannot be reactivated",
+            detail="Update the account details before reactivating it.",
+        )
+
+
+class AccountDeleteBlockedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_delete_blocked",
+            title="Account cannot be permanently deleted",
+            detail="This account has financial activity. Deactivate it to preserve its history.",
+        )
+
+
+class CategoryNameConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="category_name_conflict",
+            title="Category name is already in use",
+            detail="Choose a different category name.",
+            field_errors={"name": ["A category already uses this name."]},
+        )
+
+
+class CategoryNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="category_not_found",
+            title="Category not found",
+            detail="The requested category is unavailable.",
+        )
+
+
+class CategoryAppearanceInvalidError(AppError):
+    def __init__(self, field: str) -> None:
+        super().__init__(
+            status=422,
+            code="category_appearance_invalid",
+            title="Category appearance is invalid",
+            detail="Choose a supported category appearance.",
+            field_errors={field: [f"Select a supported {field}."]},
+        )
+
+
+class CategoryOrderInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="category_order_invalid",
+            title="Category order is invalid",
+            detail="The order must include each of your categories exactly once.",
+            field_errors={"category_ids": ["Include each category exactly once."]},
+        )
+
+
 class IncomeSourceValidationError(AppError):
     def __init__(self, message: str) -> None:
         super().__init__(
@@ -230,6 +337,32 @@ def install_exception_handlers(app: FastAPI) -> None:
         else:
             error = RequestInvalidError(_validation_field_errors(exc))
         return await app_error_handler(request, error)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        if exc.status_code == 404:
+            code = "route_not_found"
+            title = "Resource not found"
+            detail = "The requested resource is unavailable."
+        elif exc.status_code == 405:
+            code = "method_not_allowed"
+            title = "Method not allowed"
+            detail = "This request method is not supported for the resource."
+        else:
+            code = "http_error"
+            title = "Request failed"
+            detail = "The request could not be completed."
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content=problem_payload(
+                status=exc.status_code,
+                code=code,
+                title=title,
+                detail=detail,
+                correlation_id=correlation_id_from(request),
+            ),
+        )
 
     @app.exception_handler(Exception)
     async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:

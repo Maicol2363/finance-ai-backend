@@ -11,14 +11,12 @@ from finance_ai.db.session import get_session_factory
 class RegistrationCatalogTemplate:
     version: str
     categories: tuple[str, ...]
-    payment_methods: tuple[str, ...]
     income_sources: tuple[str, ...]
 
 
 REGISTRATION_CATALOG_TEMPLATE = RegistrationCatalogTemplate(
-    version="2026-08-v1",
+    version="2026-09-v2",
     categories=("Needs", "Wants", "Other"),
-    payment_methods=("Cash", "Card", "Transfer"),
     income_sources=("Salary", "Other"),
 )
 

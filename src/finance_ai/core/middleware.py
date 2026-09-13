@@ -25,6 +25,14 @@ _JSON_AUTH_PATHS = {
 }
 
 
+def _is_account_path(path: str) -> bool:
+    return path == "/api/v1/accounts" or path.startswith("/api/v1/accounts/")
+
+
+def _is_category_path(path: str) -> bool:
+    return path == "/api/v1/categories" or path.startswith("/api/v1/categories/")
+
+
 class RequestBodyTooLargeError(Exception):
     pass
 
@@ -50,7 +58,11 @@ class RequestGuardMiddleware:
         method = str(scope.get("method", ""))
         is_registration = path == "/api/v1/auth/register" and method == "POST"
         auth_operation = _AUTH_OPERATIONS.get((method, path))
-        guards_json_body = method == "POST" and path in _JSON_AUTH_PATHS
+        guards_json_body = (
+            (method == "POST" and path in _JSON_AUTH_PATHS)
+            or (method in {"POST", "PATCH"} and _is_account_path(path))
+            or (method in {"POST", "PATCH", "PUT"} and _is_category_path(path))
+        )
         started = time.perf_counter()
 
         if guards_json_body:
@@ -63,7 +75,7 @@ class RequestGuardMiddleware:
                     status=415,
                     code="unsupported_media_type",
                     title="Unsupported media type",
-                    detail="Authentication requests must use application/json.",
+                    detail="This request must use application/json.",
                     correlation_id=correlation_id,
                 )
                 self._record_completion(
@@ -126,7 +138,11 @@ class RequestGuardMiddleware:
                 status_code = int(message["status"])
                 response_headers = list(message.get("headers", []))
                 response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
-                if path.startswith("/api/v1/auth/"):
+                if (
+                    path.startswith("/api/v1/auth/")
+                    or _is_account_path(path)
+                    or _is_category_path(path)
+                ):
                     response_headers.append((b"cache-control", b"no-store"))
                     response_headers.append((b"pragma", b"no-cache"))
                 message["headers"] = response_headers
@@ -192,7 +208,7 @@ class RequestGuardMiddleware:
             status=413,
             code="request_too_large",
             title="Request is too large",
-            detail="The authentication request exceeds the allowed size.",
+            detail="The request exceeds the allowed size.",
             correlation_id=correlation_id,
         )
 
