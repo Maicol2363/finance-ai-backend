@@ -78,9 +78,8 @@ Index(
 )
 Index("ix_category_user_sort", Category.user_id, Category.sort_order, Category.id)
 Index(
-    "uq_income_source_active_name",
+    "uq_income_source_user_name",
     IncomeSource.user_id,
     func.lower(IncomeSource.name),
     unique=True,
-    postgresql_where=IncomeSource.is_active.is_(True),
 )
