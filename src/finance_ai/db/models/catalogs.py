@@ -58,9 +58,8 @@ Index(
     postgresql_where=PaymentMethod.is_active.is_(True),
 )
 Index(
-    "uq_income_source_active_name",
+    "uq_income_source_user_name",
     IncomeSource.user_id,
     func.lower(IncomeSource.name),
     unique=True,
-    postgresql_where=IncomeSource.is_active.is_(True),
 )

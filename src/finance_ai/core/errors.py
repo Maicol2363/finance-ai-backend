@@ -140,6 +140,38 @@ class ServiceUnavailableError(AppError):
         )
 
 
+class IncomeSourceValidationError(AppError):
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            status=422,
+            code="income_source_invalid",
+            title="Income source is invalid",
+            detail="Please correct the highlighted fields and try again.",
+            field_errors={"name": [message]},
+        )
+
+
+class IncomeSourceNameTakenError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="income_source_name_taken",
+            title="Income source name already exists",
+            detail="You already have an income source with this name.",
+            field_errors={"name": ["This name is already in use."]},
+        )
+
+
+class IncomeSourceNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="income_source_not_found",
+            title="Income source not found",
+            detail="This income source does not exist.",
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 
