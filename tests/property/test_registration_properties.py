@@ -9,11 +9,13 @@ from finance_ai.auth.schemas import RegisterCommand, RegistrationResponse, Regis
 from finance_ai.core.errors import RegistrationValidationError
 from finance_ai.db.seeds import REGISTRATION_CATALOG_TEMPLATE
 
+_STATIC_RESPONSE_WORDS = {"currency", "message", "account", "created", "successfully"}
+
 safe_passwords = st.text(
     alphabet=string.ascii_letters + string.digits + " !@#$%^&*()-_=+",
     min_size=8,
     max_size=128,
-)
+).filter(lambda p: p.casefold() not in _STATIC_RESPONSE_WORDS)
 
 
 @given(
