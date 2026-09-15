@@ -110,6 +110,9 @@ def test_login_returns_non_cacheable_opaque_session_without_password(
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-correlation-id"] == "login-contract-1"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-xss-protection"] == "0"
     assert response.json()["token_type"] == "Bearer"
     assert response.json()["access_credential"] == "a" * 43
     assert response.json()["renewable_credential"] == "b" * 43
