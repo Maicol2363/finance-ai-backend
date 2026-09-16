@@ -178,25 +178,44 @@ def test_concurrent_normalized_duplicate_creates_exactly_one_user() -> None:
         assert session.scalar(select(func.count()).select_from(IncomeSource)) == 2
 
 
-def test_current_schema_adds_accounts_without_creating_later_expense_or_ai_tables() -> None:
+def test_current_schema_includes_all_dbml_tables() -> None:
     with get_session_factory()() as session:
         names = {
             name
             for name in (
+                "role",
+                "app_user",
+                "category",
+                "subcategory",
+                "currency",
+                "paymentmethod",
+                "receipt",
+                "expense",
+                "spendinglimit",
+                "incomesource",
+                "income",
                 "account",
                 "account_movement",
                 "financial_transaction",
-                "payment_method",
-                "subcategory",
                 "user_session",
                 "renewable_credential",
-                "ai_interaction",
             )
             if session.scalar(text("SELECT to_regclass(:name)"), {"name": f"public.{name}"})
             is not None
         }
 
     assert names == {
+        "role",
+        "app_user",
+        "category",
+        "subcategory",
+        "currency",
+        "paymentmethod",
+        "receipt",
+        "expense",
+        "spendinglimit",
+        "incomesource",
+        "income",
         "account",
         "account_movement",
         "financial_transaction",

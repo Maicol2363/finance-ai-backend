@@ -1,4 +1,4 @@
-from sqlalchemy import MetaData
+from sqlalchemy import BigInteger, Integer, MetaData
 from sqlalchemy.orm import DeclarativeBase
 
 NAMING_CONVENTION = {
@@ -8,6 +8,8 @@ NAMING_CONVENTION = {
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
+
+BigIntPK = BigInteger().with_variant(Integer, "sqlite")
 
 
 class Base(DeclarativeBase):

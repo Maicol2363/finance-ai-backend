@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -13,13 +12,13 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from finance_ai.db.base import Base
+from finance_ai.db.base import Base, BigIntPK
 
 
 class OwnedCatalogMixin:
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
     )
@@ -50,7 +49,7 @@ class Category(Base):
         CheckConstraint("sort_order >= 0", name="sort_order_non_negative"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
     )
@@ -65,9 +64,39 @@ class Category(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
+    subcategories: Mapped[list[Subcategory]] = relationship(
+        back_populates="category", cascade="all, delete-orphan"
+    )
+
+
+class Subcategory(Base):
+    __tablename__ = "subcategory"
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("category.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    category: Mapped[Category] = relationship(back_populates="subcategories")
+
+
+class PaymentMethod(Base):
+    __tablename__ = "paymentmethod"
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+
 
 class IncomeSource(OwnedCatalogMixin, Base):
     __tablename__ = "income_source"
+
+
+class Incomesource(Base):
+    __tablename__ = "incomesource"
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
 
 
 Index(
