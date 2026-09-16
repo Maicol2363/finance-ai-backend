@@ -25,7 +25,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_role"),
         sa.UniqueConstraint("name", name="uq_role_name"),
     )
-    op.execute("INSERT INTO role (id, name) VALUES (1, 'user') ON CONFLICT DO NOTHING")
+    op.execute("INSERT INTO role (name) VALUES ('user') ON CONFLICT DO NOTHING")
+    op.execute(
+        "SELECT setval("
+        "pg_get_serial_sequence('role', 'id'), "
+        "COALESCE((SELECT MAX(id) FROM role), 1))"
+    )
 
     op.add_column(
         "app_user",
