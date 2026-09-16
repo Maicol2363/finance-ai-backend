@@ -26,7 +26,6 @@ from finance_ai.core.errors import (
 )
 from finance_ai.db.category_uow import SQLAlchemyCategoryUnitOfWork
 from finance_ai.db.models.catalogs import Category
-from finance_ai.db.models.identity import AppUser
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.seeds import seed_shared_data
 from finance_ai.db.session import clear_session_caches, get_session_factory
@@ -74,15 +73,17 @@ def create_user(email: str) -> int:
     with get_session_factory()() as session:
         currency_id = session.scalar(select(Currency.id).where(Currency.code == "COP"))
         assert currency_id is not None
-        user = AppUser(
-            email=email,
-            password_hash="$argon2id$synthetic",
-            preferred_currency_id=currency_id,
-            is_active=True,
+        user_id = session.scalar(
+            text(
+                "INSERT INTO app_user (email, password_hash, preferred_currency_id, is_active) "
+                "VALUES (:email, '$argon2id$synthetic', :currency_id, true) "
+                "RETURNING id"
+            ),
+            {"email": email, "currency_id": currency_id},
         )
-        session.add(user)
         session.commit()
-        return user.id
+        assert user_id is not None
+        return user_id
 
 
 def create_category(owner_id: int, name: str) -> int:
