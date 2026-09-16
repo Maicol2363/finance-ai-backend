@@ -171,3 +171,16 @@ def test_liveness_does_not_depend_on_the_database(
 
     assert response.status_code == 200
     assert response.json() == {"status": "alive"}
+
+
+def test_security_headers_present(
+    client_and_service: tuple[TestClient, StubRegistrationService],
+) -> None:
+    client, _ = client_and_service
+
+    response = client.post("/api/v1/auth/register", json=registration_payload())
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["x-permitted-cross-domain-policies"] == "none"
