@@ -21,17 +21,17 @@ from finance_ai.core.errors import (
     IncomeSourceUnavailableError,
 )
 from finance_ai.db.account_uow import SQLAlchemyAccountUnitOfWork
-from finance_ai.db.uow import SQLAlchemyIncomeSourceUnitOfWork
 from finance_ai.db.models.catalogs import IncomeSource
 from finance_ai.db.models.identity import AppUser
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.transactions import AccountMovement, FinancialTransaction
 from finance_ai.db.seeds import seed_shared_data
 from finance_ai.db.session import clear_session_caches, get_session_factory
+from finance_ai.db.uow import SQLAlchemyIncomeSourceUnitOfWork
+from finance_ai.income_sources.service import IncomeSourceService
 from finance_ai.incomes.repository import IncomeRepository
 from finance_ai.incomes.schemas import IncomeWriteRequest
 from finance_ai.incomes.service import IncomeService
-from finance_ai.income_sources.service import IncomeSourceService
 
 pytestmark = pytest.mark.integration
 TEST_DATABASE_URL = os.getenv("FINANCE_AI_TEST_DATABASE_URL")
