@@ -138,6 +138,8 @@ class RequestGuardMiddleware:
                 status_code = int(message["status"])
                 response_headers = list(message.get("headers", []))
                 response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
+                response_headers.append((b"x-content-type-options", b"nosniff"))
+                response_headers.append((b"x-frame-options", b"DENY"))
                 if (
                     path.startswith("/api/v1/auth/")
                     or _is_account_path(path)
@@ -228,6 +230,8 @@ class RequestGuardMiddleware:
             status_code=status,
             headers={
                 "X-Correlation-ID": correlation_id,
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
                 "Cache-Control": "no-store",
                 "Pragma": "no-cache",
             },
