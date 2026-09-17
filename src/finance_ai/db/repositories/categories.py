@@ -1,4 +1,4 @@
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -110,12 +110,19 @@ class SQLAlchemyCategoryRepository:
             raise
 
     def reorder(self, *, owner_id: int, category_ids: tuple[int, ...]) -> None:
-        for position, category_id in enumerate(category_ids):
-            self.session.execute(
-                update(Category)
-                .where(Category.user_id == owner_id, Category.id == category_id)
-                .values(sort_order=position, updated_at=func.now())
-            )
+        if not category_ids:
+            return
+        # Performance Optimization: Batch reordering into a single UPDATE query using a
+        # CASE expression instead of N database round-trips (query count N -> 1).
+        sort_order_case = case(
+            {category_id: position for position, category_id in enumerate(category_ids)},
+            value=Category.id,
+        )
+        self.session.execute(
+            update(Category)
+            .where(Category.user_id == owner_id, Category.id.in_(category_ids))
+            .values(sort_order=sort_order_case, updated_at=func.now())
+        )
 
     def delete(self, *, owner_id: int, category_id: int) -> None:
         self.session.execute(
