@@ -36,12 +36,19 @@ class FinancialTransaction(Base):
             "capture_source IN ('manual', 'ai', 'import')",
             name="capture_source_supported",
         ),
+        CheckConstraint(
+            "type = 'income' OR income_source_id IS NULL",
+            name="income_source_only_for_income",
+        ),
         UniqueConstraint("id", "user_id", name="uq_financial_transaction_id_user_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    income_source_id: Mapped[int | None] = mapped_column(
+        ForeignKey("income_source.id", ondelete="SET NULL")
     )
     transaction_type: Mapped[str] = mapped_column("type", String(24), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -89,6 +96,12 @@ Index(
     FinancialTransaction.user_id,
     FinancialTransaction.status,
     FinancialTransaction.id,
+)
+Index(
+    "ix_financial_transaction_user_occurred",
+    FinancialTransaction.user_id,
+    FinancialTransaction.occurred_at.desc(),
+    FinancialTransaction.id.desc(),
 )
 Index(
     "ix_account_movement_account_transaction",

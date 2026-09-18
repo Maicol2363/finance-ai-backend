@@ -33,6 +33,14 @@ def _is_category_path(path: str) -> bool:
     return path == "/api/v1/categories" or path.startswith("/api/v1/categories/")
 
 
+def _is_expense_path(path: str) -> bool:
+    return path == "/api/v1/expenses" or path.startswith("/api/v1/expenses/")
+
+
+def _is_history_path(path: str) -> bool:
+    return path == "/api/v1/history"
+
+
 class RequestBodyTooLargeError(Exception):
     pass
 
@@ -62,6 +70,7 @@ class RequestGuardMiddleware:
             (method == "POST" and path in _JSON_AUTH_PATHS)
             or (method in {"POST", "PATCH"} and _is_account_path(path))
             or (method in {"POST", "PATCH", "PUT"} and _is_category_path(path))
+            or (method == "PATCH" and _is_expense_path(path))
         )
         started = time.perf_counter()
 
@@ -142,6 +151,8 @@ class RequestGuardMiddleware:
                     path.startswith("/api/v1/auth/")
                     or _is_account_path(path)
                     or _is_category_path(path)
+                    or _is_expense_path(path)
+                    or _is_history_path(path)
                 ):
                     response_headers.append((b"cache-control", b"no-store"))
                     response_headers.append((b"pragma", b"no-cache"))

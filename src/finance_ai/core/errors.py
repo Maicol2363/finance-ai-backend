@@ -279,6 +279,59 @@ class IncomeSourceNotFoundError(AppError):
         )
 
 
+class ExpenseNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="expense_not_found",
+            title="Expense not found",
+            detail="The requested expense is unavailable.",
+        )
+
+
+class ExpenseNotEditableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="expense_not_editable",
+            title="Expense cannot be edited",
+            detail="Only confirmed expenses can be edited or deleted.",
+        )
+
+
+class ExpenseAccountInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="expense_account_invalid",
+            title="Expense account is invalid",
+            detail="Select an active account with the expense currency.",
+            field_errors={"account_id": ["Select an active account with the expense currency."]},
+        )
+
+
+class ExpenseCategoryNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="expense_category_not_found",
+            title="Expense category is unavailable",
+            detail="Select one of your categories or leave the expense uncategorized.",
+            field_errors={"category_id": ["Select one of your categories."]},
+        )
+
+
+class HistoryFilterInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="history_filter_invalid",
+            title="History filters are invalid",
+            detail="Please correct the selected history filters.",
+            field_errors=field_errors,
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 

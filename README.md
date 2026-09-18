@@ -1,6 +1,6 @@
 # Finance AI Backend
 
-FastAPI backend for the manual-first Finance AI application. The current scope provides registration, opaque hash-only sessions, and authenticated financial-account management with exact derived balances.
+FastAPI backend for the manual-first Finance AI application. The current scope provides registration, opaque hash-only sessions, authenticated financial-account management with exact derived balances, expense correction, and unified financial history.
 
 ## Local commands
 
@@ -37,3 +37,34 @@ Permanent deletion succeeds only when the account has no movements of any status
 Every account stores an explicit supported currency and signed `NUMERIC(18,2)` opening balance. API money is serialized as a fixed decimal string. Current balance is never stored as mutable state; it is calculated as opening balance plus confirmed signed account movements. Pending and voided transactions do not contribute. HU-003 creates that internal movement persistence only—there is no public transaction or movement write endpoint yet.
 
 Account names are unique case-insensitively among one user's active accounts. Inactive names may be reused, but reactivation fails if the name now conflicts. Currency may change until the account has confirmed activity. All reads and mutations derive ownership from the bearer session, and missing and foreign-owned identifiers share the same safe `account_not_found` response.
+
+## Expenses (HU-008)
+
+HU-008 exposes the expense records created by the transaction/receipt flow:
+
+- `GET /api/v1/expenses` lists only the authenticated user's expenses with stable pagination.
+- `GET /api/v1/expenses/{expense_id}` returns one owned expense.
+- `PATCH /api/v1/expenses/{expense_id}` corrects editable expense, receipt, and transaction fields.
+- `DELETE /api/v1/expenses/{expense_id}` removes the complete confirmed expense transaction.
+
+Only `confirmed` expenses can be edited or deleted. An update recalculates the receipt total and the signed account movement inside the same database transaction. Deleting the financial transaction uses PostgreSQL cascades for its receipt, expense items, and account movements. Detail responses expose `receipt_image` and `image_path` as persisted attachment references; the current backend removes those references, while physical object-storage cleanup belongs to the future file-storage adapter. Expense monetary values follow the database `NUMERIC(12,2)` limit.
+
+The service never trusts an identifier by itself: every read and mutation scopes the expense, receipt, transaction, movement, account, and category checks to the authenticated owner. `0009_hu008_hu011_expense_history` adds the financial linkage and editable fields; `0010_expense_audit_index` adds audit timestamps and repairs the category/date index for databases that already reached `0009`.
+
+## Unified history (HU-011)
+
+`GET /api/v1/history` returns owned `expense`, `income`, and `transfer` transactions ordered by `occurred_at DESC, id DESC`. It supports `search`, `type`, `category_id`, `account_id`, `period=weekly|monthly|custom`, `start_date`, `end_date`, `page`, and `page_size`. Custom ranges are inclusive by date, and each movement includes the account's currency metadata and signed amount. History reads existing income and transfer transactions; their public creation flows belong to later stories.
+
+### Backend verification
+
+Run the following from this directory after PostgreSQL is healthy:
+
+```text
+docker compose build test
+docker compose --profile test run --rm test
+docker compose exec -T api alembic check
+```
+
+The integration suite downgrades the configured database to `base`, upgrades it to `head`, seeds shared catalogs, and refuses any database whose name does not end in `_test`.
+
+Downgrading below `0009` is intentionally destructive for expenses without a subcategory: revision `0008` cannot represent uncategorized items, so `0009` removes those incompatible rows before restoring its old constraint.
