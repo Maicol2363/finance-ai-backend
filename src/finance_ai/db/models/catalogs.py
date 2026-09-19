@@ -9,6 +9,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    UniqueConstraint,
     func,
     text,
 )
@@ -97,6 +98,21 @@ class Incomesource(Base):
 
     id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+
+
+class Store(Base):
+    __tablename__ = "store"
+    __table_args__ = (
+        UniqueConstraint("user_id", "normalized_name", name="uq_store_user_normalized_name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
 
 Index(

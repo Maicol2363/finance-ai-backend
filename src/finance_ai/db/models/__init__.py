@@ -1,10 +1,11 @@
 from finance_ai.db.models.accounts import Account
-from finance_ai.db.models.budgets import SpendingLimit
+from finance_ai.db.models.budgets import Budget, SpendingLimit
 from finance_ai.db.models.catalogs import (
     Category,
     IncomeSource,
     Incomesource,
     PaymentMethod,
+    Store,
     Subcategory,
 )
 from finance_ai.db.models.identity import AppUser, Role
@@ -18,6 +19,7 @@ __all__ = [
     "Account",
     "AccountMovement",
     "AppUser",
+    "Budget",
     "Category",
     "Currency",
     "Expense",
@@ -30,6 +32,7 @@ __all__ = [
     "RenewableCredential",
     "Role",
     "SpendingLimit",
+    "Store",
     "Subcategory",
     "UserSession",
 ]
