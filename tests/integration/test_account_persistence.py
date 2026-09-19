@@ -154,6 +154,7 @@ def test_migration_constraints_and_model_metadata_match() -> None:
         "ck_financial_transaction_income_source_only_for_income",
         "ck_financial_transaction_status_supported",
         "ck_financial_transaction_type_supported",
+        "ck_financial_transaction_income_source_only_for_income",
     }
 
 
