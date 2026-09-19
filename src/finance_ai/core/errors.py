@@ -332,6 +332,38 @@ class HistoryFilterInvalidError(AppError):
         )
 
 
+class IncomeNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="income_not_found",
+            title="Income not found",
+            detail="The requested income is unavailable.",
+        )
+
+
+class IncomeAccountUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="income_account_unavailable",
+            title="Account is unavailable",
+            detail="Choose one of your active accounts.",
+            field_errors={"account_id": ["Choose one of your active accounts."]},
+        )
+
+
+class IncomeSourceUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="income_source_unavailable",
+            title="Income source is unavailable",
+            detail="Choose one of your income sources or leave it empty.",
+            field_errors={"income_source_id": ["Choose one of your income sources."]},
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 

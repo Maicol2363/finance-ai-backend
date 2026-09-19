@@ -104,6 +104,10 @@ Index(
     FinancialTransaction.id.desc(),
 )
 Index(
+    "ix_financial_transaction_income_source",
+    FinancialTransaction.income_source_id,
+)
+Index(
     "ix_account_movement_account_transaction",
     AccountMovement.account_id,
     AccountMovement.transaction_id,
