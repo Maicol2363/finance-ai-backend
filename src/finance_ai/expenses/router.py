@@ -81,6 +81,7 @@ def list_expenses(
         total=result.total,
         page=result.page,
         page_size=result.page_size,
+        has_next=result.has_next,
     )
 
 
@@ -168,4 +169,5 @@ def get_history(
         total=result.total,
         page=result.page,
         page_size=result.page_size,
+        has_next=result.has_next,
     )

@@ -66,6 +66,10 @@ class ExpenseListResult:
     page: int
     page_size: int
 
+    @property
+    def has_next(self) -> bool:
+        return (self.page * self.page_size) < self.total
+
 
 @dataclass(frozen=True)
 class HistoryResult:
@@ -73,6 +77,10 @@ class HistoryResult:
     total: int
     page: int
     page_size: int
+
+    @property
+    def has_next(self) -> bool:
+        return (self.page * self.page_size) < self.total
 
 
 class ExpenseCreateRequest(BaseModel):
@@ -272,6 +280,7 @@ class ExpenseListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    has_next: bool
 
 
 class HistoryExpenseItemResponse(BaseModel):
@@ -381,3 +390,4 @@ class HistoryResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    has_next: bool
