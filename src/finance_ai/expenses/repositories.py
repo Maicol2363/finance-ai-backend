@@ -1,4 +1,4 @@
-"""Application-facing records and contracts for expenses and history."""
+"""Data transfer records and persistence contract for HU-006, HU-008, and HU-011."""
 
 from __future__ import annotations
 
@@ -20,38 +20,6 @@ class CurrencyReference:
 class CategoryReference:
     id: int
     name: str
-
-
-@dataclass(frozen=True)
-class HistoryMovementRecord:
-    account_id: int
-    account_name: str
-    amount: Decimal
-    currency: CurrencyReference
-
-
-@dataclass(frozen=True)
-class ExpenseItemRecord:
-    id: int
-    name: str
-    amount: Decimal
-    quantity: Decimal
-    unit_price: Decimal | None
-    note: str | None
-    category: CategoryReference | None
-    image_path: str | None = None
-
-
-@dataclass(frozen=True)
-class HistoryExpenseRecord:
-    receipt_id: int
-    name: str
-    occurred_at: datetime
-    total_amount: Decimal
-    note: str | None
-    store: str
-    items: tuple[ExpenseItemRecord, ...]
-    receipt_image: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +48,37 @@ class ExpenseRecord:
     updated_at: datetime
     receipt_image: str | None = None
     image_path: str | None = None
+
+
+@dataclass(frozen=True)
+class ExpenseItemRecord:
+    id: int
+    name: str
+    amount: Decimal
+    quantity: Decimal
+    unit_price: Decimal | None
+    note: str | None
+    category: CategoryReference | None
+
+
+@dataclass(frozen=True)
+class HistoryExpenseRecord:
+    id: int
+    receipt_id: int
+    store: str
+    total: Decimal
+    currency: CurrencyReference
+    category: CategoryReference | None
+    purchase_reason: str | None
+    items: tuple[ExpenseItemRecord, ...]
+
+
+@dataclass(frozen=True)
+class HistoryMovementRecord:
+    account_id: int
+    account_name: str
+    amount: Decimal
+    currency: CurrencyReference
 
 
 @dataclass(frozen=True)
@@ -121,6 +120,18 @@ class ExpenseRepository(Protocol):
     ) -> CurrencyReference | None: ...
 
     def category_owned(self, *, owner_id: int, category_id: int) -> bool: ...
+
+    def create_manual(
+        self,
+        *,
+        owner_id: int,
+        account_id: int,
+        amount: Decimal,
+        merchant: str,
+        occurred_at: datetime,
+        category_id: int | None = None,
+        note: str | None = None,
+    ) -> ExpenseRecord: ...
 
     def update(
         self,
