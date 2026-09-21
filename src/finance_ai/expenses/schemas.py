@@ -1,4 +1,4 @@
-"""HTTP and application schemas for HU-008 and HU-011."""
+"""HTTP and application schemas for HU-006, HU-008, and HU-011."""
 
 from __future__ import annotations
 
@@ -36,6 +36,16 @@ class HistoryPeriod(StrEnum):
 
 
 @dataclass(frozen=True)
+class CreateExpenseCommand:
+    account_id: int
+    amount: Decimal
+    merchant: str
+    occurred_at: datetime
+    category_id: int | None = None
+    note: str | None = None
+
+
+@dataclass(frozen=True)
 class ExpenseUpdateCommand:
     fields: frozenset[str]
     name: str | None = None
@@ -56,6 +66,10 @@ class ExpenseListResult:
     page: int
     page_size: int
 
+    @property
+    def has_next(self) -> bool:
+        return (self.page * self.page_size) < self.total
+
 
 @dataclass(frozen=True)
 class HistoryResult:
@@ -63,6 +77,57 @@ class HistoryResult:
     total: int
     page: int
     page_size: int
+
+    @property
+    def has_next(self) -> bool:
+        return (self.page * self.page_size) < self.total
+
+
+class ExpenseCreateRequest(BaseModel):
+    """Fields required to capture a manual expense (HU-006)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int = Field(gt=0)
+    amount: MoneyInput = Field(gt=0)
+    merchant: str = Field(min_length=1, max_length=150)
+    occurred_at: datetime | None = None
+    category_id: int | None = Field(default=None, gt=0)
+    note: str | None = Field(default=None, max_length=5_000)
+
+    @field_validator("merchant", "note", mode="after")
+    @classmethod
+    def trim_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed if trimmed else None
+
+    @field_validator("merchant", mode="after")
+    @classmethod
+    def require_non_empty_merchant(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Merchant cannot be empty")
+        return value
+
+    @field_validator("occurred_at", mode="after")
+    @classmethod
+    def normalize_occurred_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("occurred_at must include a timezone")
+        return value.astimezone(UTC)
+
+    def to_command(self) -> CreateExpenseCommand:
+        return CreateExpenseCommand(
+            account_id=self.account_id,
+            amount=self.amount,
+            merchant=self.merchant,
+            occurred_at=self.occurred_at if self.occurred_at is not None else datetime.now(UTC),
+            category_id=self.category_id,
+            note=self.note,
+        )
 
 
 class ExpenseUpdateRequest(BaseModel):
@@ -218,7 +283,7 @@ class ExpenseListResponse(BaseModel):
     has_next: bool
 
 
-class ExpenseItemResponse(BaseModel):
+class HistoryExpenseItemResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: int
@@ -228,10 +293,10 @@ class ExpenseItemResponse(BaseModel):
     unit_price: str | None
     note: str | None
     category: CategoryResponse | None
-    image_path: str | None
+    image_path: str | None = None
 
     @classmethod
-    def from_record(cls, item: ExpenseItemRecord) -> ExpenseItemResponse:
+    def from_record(cls, item: ExpenseItemRecord) -> HistoryExpenseItemResponse:
         return cls(
             id=item.id,
             name=item.name,
@@ -241,26 +306,6 @@ class ExpenseItemResponse(BaseModel):
             note=item.note,
             category=CategoryResponse.from_record(item.category),
             image_path=item.image_path,
-        )
-
-
-class HistoryMovementResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    account_id: int
-    account_name: str
-    amount: str
-    currency: CurrencyResponse
-    currency_code: str
-
-    @classmethod
-    def from_record(cls, item: HistoryMovementRecord) -> HistoryMovementResponse:
-        return cls(
-            account_id=item.account_id,
-            account_name=item.account_name,
-            amount=format_money(item.amount),
-            currency=CurrencyResponse.from_record(item.currency),
-            currency_code=item.currency.code,
         )
 
 
@@ -275,22 +320,42 @@ class HistoryExpenseResponse(BaseModel):
     note: str | None
     store: str
     store_name: str
-    items: list[ExpenseItemResponse]
+    items: list[HistoryExpenseItemResponse]
     receipt_image: str | None
 
     @classmethod
-    def from_record(cls, item: HistoryExpenseRecord) -> HistoryExpenseResponse:
+    def from_record(cls, expense: HistoryExpenseRecord) -> HistoryExpenseResponse:
         return cls(
-            receipt_id=item.receipt_id,
-            name=item.name,
-            occurred_at=item.occurred_at,
-            purchased_at=item.occurred_at,
-            total_amount=format_money(item.total_amount),
-            note=item.note,
-            store=item.store,
-            store_name=item.store,
-            items=[ExpenseItemResponse.from_record(child) for child in item.items],
-            receipt_image=item.receipt_image,
+            receipt_id=expense.receipt_id,
+            name=expense.name,
+            occurred_at=expense.occurred_at,
+            purchased_at=expense.occurred_at,
+            total_amount=format_money(expense.total_amount),
+            note=expense.note,
+            store=expense.store,
+            store_name=expense.store,
+            items=[HistoryExpenseItemResponse.from_record(item) for item in expense.items],
+            receipt_image=expense.receipt_image,
+        )
+
+
+class HistoryMovementResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int
+    account_name: str
+    amount: str
+    currency: CurrencyResponse
+    currency_code: str
+
+    @classmethod
+    def from_record(cls, movement: HistoryMovementRecord) -> HistoryMovementResponse:
+        return cls(
+            account_id=movement.account_id,
+            account_name=movement.account_name,
+            amount=format_money(movement.amount),
+            currency=CurrencyResponse.from_record(movement.currency),
+            currency_code=movement.currency.code,
         )
 
 
@@ -308,21 +373,21 @@ class HistoryItemResponse(BaseModel):
     expense: HistoryExpenseResponse | None
 
     @classmethod
-    def from_record(cls, item: HistoryRecord) -> HistoryItemResponse:
+    def from_record(cls, record: HistoryRecord) -> HistoryItemResponse:
         return cls(
-            id=item.id,
-            type=TransactionType(item.transaction_type),
-            status=item.status,
-            occurred_at=item.occurred_at,
-            description=item.description,
-            capture_source=item.capture_source,
-            income_source=item.income_source_name,
-            movements=[
-                HistoryMovementResponse.from_record(movement) for movement in item.movements
-            ],
-            expense=None
-            if item.expense is None
-            else HistoryExpenseResponse.from_record(item.expense),
+            id=record.id,
+            type=TransactionType(record.transaction_type),
+            status=record.status,
+            occurred_at=record.occurred_at,
+            description=record.description,
+            capture_source=record.capture_source,
+            income_source=record.income_source_name,
+            movements=[HistoryMovementResponse.from_record(m) for m in record.movements],
+            expense=(
+                None
+                if record.expense is None
+                else HistoryExpenseResponse.from_record(record.expense)
+            ),
         )
 
 
@@ -342,5 +407,5 @@ class HistoryResponse(BaseModel):
             total=result.total,
             page=result.page,
             page_size=result.page_size,
-            has_next=result.page * result.page_size < result.total,
+            has_next=result.has_next,
         )

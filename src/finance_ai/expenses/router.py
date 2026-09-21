@@ -1,4 +1,4 @@
-"""Authenticated HTTP routes for expense correction and financial history."""
+"""Authenticated HTTP routes for expense capture, correction, and financial history."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from finance_ai.auth.session_service import SessionService
 from finance_ai.core.errors import ProblemResponse
 from finance_ai.expenses.dependencies import get_expense_service
 from finance_ai.expenses.schemas import (
+    ExpenseCreateRequest,
     ExpenseListResponse,
     ExpenseResponse,
     ExpenseUpdateRequest,
@@ -43,6 +44,25 @@ def get_authenticated_principal(
     return session_service.current_user(access_credential)
 
 
+@router.post(
+    "/expenses",
+    response_model=ExpenseResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=ERROR_RESPONSES,
+)
+def create_expense(
+    payload: ExpenseCreateRequest,
+    principal: Annotated[PublicAuthenticatedUser, Depends(get_authenticated_principal)],
+    service: Annotated[ExpenseService, Depends(get_expense_service)],
+) -> ExpenseResponse:
+    return ExpenseResponse.from_record(
+        service.create(
+            owner_id=principal.user_id,
+            command=payload.to_command(),
+        )
+    )
+
+
 @router.get(
     "/expenses",
     response_model=ExpenseListResponse,
@@ -60,7 +80,7 @@ def list_expenses(
         total=result.total,
         page=result.page,
         page_size=result.page_size,
-        has_next=result.page * result.page_size < result.total,
+        has_next=result.has_next,
     )
 
 
@@ -118,23 +138,25 @@ def delete_expense(
     response_model=HistoryResponse,
     responses=ERROR_RESPONSES,
 )
-def history(
+def get_history(
     principal: Annotated[PublicAuthenticatedUser, Depends(get_authenticated_principal)],
     service: Annotated[ExpenseService, Depends(get_expense_service)],
-    search: Annotated[str | None, Query(max_length=100)] = None,
-    transaction_type: Annotated[TransactionType | None, Query(alias="type")] = None,
+    search: Annotated[str | None, Query(max_length=200)] = None,
+    type: Annotated[TransactionType | None, Query()] = None,
+    transaction_type: Annotated[TransactionType | None, Query()] = None,
     category_id: Annotated[int | None, Query(gt=0)] = None,
     account_id: Annotated[int | None, Query(gt=0)] = None,
-    period: HistoryPeriod | None = None,
-    start_date: date | None = None,
-    end_date: date | None = None,
+    period: Annotated[HistoryPeriod | None, Query()] = None,
+    start_date: Annotated[date | None, Query()] = None,
+    end_date: Annotated[date | None, Query()] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> HistoryResponse:
+    effective_type = type if type is not None else transaction_type
     result = service.history(
         owner_id=principal.user_id,
         search=search,
-        transaction_type=transaction_type,
+        transaction_type=None if effective_type is None else effective_type.value,
         category_id=category_id,
         account_id=account_id,
         period=period,

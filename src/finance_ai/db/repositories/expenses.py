@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -11,7 +11,7 @@ from sqlalchemy import Select, and_, delete, exists, func, or_, select, update
 from sqlalchemy.orm import Session, aliased
 
 from finance_ai.db.models.accounts import Account
-from finance_ai.db.models.catalogs import Category, IncomeSource, Subcategory
+from finance_ai.db.models.catalogs import Category, IncomeSource, Store, Subcategory
 from finance_ai.db.models.receipts import Expense, Receipt
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.transactions import AccountMovement, FinancialTransaction
@@ -79,6 +79,94 @@ class SQLAlchemyExpenseRepository:
             )
             is not None
         )
+
+    def create_manual(
+        self,
+        *,
+        owner_id: int,
+        account_id: int,
+        amount: Decimal,
+        merchant: str,
+        occurred_at: datetime,
+        category_id: int | None = None,
+        note: str | None = None,
+    ) -> ExpenseRecord:
+        normalized = merchant.strip().lower()
+        store = self.session.execute(
+            select(Store).where(
+                Store.user_id == owner_id,
+                Store.normalized_name == normalized,
+            )
+        ).scalar_one_or_none()
+        if store is None:
+            store = Store(
+                user_id=owner_id,
+                name=merchant.strip(),
+                normalized_name=normalized,
+                is_active=True,
+            )
+            self.session.add(store)
+            self.session.flush()
+
+        account = self.session.execute(
+            select(Account).where(
+                Account.id == account_id,
+                Account.user_id == owner_id,
+            )
+        ).scalar_one()
+
+        transaction = FinancialTransaction(
+            user_id=owner_id,
+            transaction_type="expense",
+            status="confirmed",
+            occurred_at=occurred_at,
+            description=merchant.strip(),
+            capture_source="manual",
+        )
+        self.session.add(transaction)
+        self.session.flush()
+
+        movement = AccountMovement(
+            user_id=owner_id,
+            transaction_id=transaction.id,
+            account_id=account_id,
+            amount=-amount,
+        )
+        self.session.add(movement)
+
+        receipt = Receipt(
+            user_id=owner_id,
+            transaction_id=transaction.id,
+            store_id=store.id,
+            store=merchant.strip(),
+            date=occurred_at.date(),
+            currency_id=account.currency_id,
+            category_id=category_id,
+            purchase_reason=note,
+            total=amount,
+            payment_method_id=1,
+        )
+        self.session.add(receipt)
+        self.session.flush()
+
+        expense = Expense(
+            user_id=owner_id,
+            receipt_id=receipt.id,
+            category_id=category_id,
+            position=1,
+            name=merchant.strip(),
+            quantity=Decimal("1"),
+            unit_price=amount,
+            amount=amount,
+            note=note,
+            item_reason=note,
+        )
+        self.session.add(expense)
+        self.session.flush()
+
+        created = self.find_owned(owner_id=owner_id, expense_id=expense.id)
+        assert created is not None
+        return created
 
     def update(
         self,
@@ -248,46 +336,74 @@ class SQLAlchemyExpenseRepository:
                 ),
             )
             .join(Currency, Currency.id == Account.currency_id)
-            .where(AccountMovement.user_id == owner_id, AccountMovement.transaction_id.in_(ids))
-            .order_by(AccountMovement.transaction_id, AccountMovement.id)
+            .where(
+                AccountMovement.transaction_id.in_(ids),
+                AccountMovement.user_id == owner_id,
+            )
         ).all()
-        movements: dict[int, list[HistoryMovementRecord]] = defaultdict(list)
+
+        movements_by_tx: dict[int, list[HistoryMovementRecord]] = defaultdict(list)
         for movement, account, currency in movement_rows:
-            movements[movement.transaction_id].append(
+            movements_by_tx[movement.transaction_id].append(
                 HistoryMovementRecord(
-                    account_id=account.id,
+                    account_id=movement.account_id,
                     account_name=account.name,
                     amount=movement.amount,
                     currency=self._currency(currency),
                 )
             )
 
-        parent_category = aliased(Category)
         expense_rows = self.session.execute(
-            select(Expense, Receipt, Category, parent_category)
+            select(Expense, Receipt, Currency, Category)
             .join(Receipt, Receipt.id == Expense.receipt_id)
+            .join(Currency, Currency.id == Receipt.currency_id)
             .outerjoin(Category, Category.id == Expense.category_id)
-            .outerjoin(Subcategory, Subcategory.id == Expense.subcategory_id)
-            .outerjoin(parent_category, parent_category.id == Subcategory.category_id)
             .where(
                 Receipt.transaction_id.in_(ids),
-                Receipt.user_id == owner_id,
                 Expense.user_id == owner_id,
+                Receipt.user_id == owner_id,
             )
-            .order_by(Receipt.transaction_id, Expense.position, Expense.id)
+            .order_by(Expense.position.asc(), Expense.id.asc())
         ).all()
-        expense_groups: dict[
-            int, list[tuple[Expense, Receipt, Category | None, Category | None]]
-        ] = defaultdict(list)
-        for expense, receipt, category, legacy_category in expense_rows:
-            expense_groups[receipt.transaction_id].append(
-                (expense, receipt, category, legacy_category)
+
+        items_by_receipt: dict[int, list[ExpenseItemRecord]] = defaultdict(list)
+        receipt_meta: dict[int, tuple[Receipt, Currency, Category | None]] = {}
+        for expense, receipt, currency, category in expense_rows:
+            receipt_meta[receipt.id] = (receipt, currency, category)
+            category_ref = (
+                None if category is None else CategoryReference(category.id, category.name)
+            )
+            items_by_receipt[receipt.id].append(
+                ExpenseItemRecord(
+                    id=expense.id,
+                    name=expense.name,
+                    amount=expense.amount,
+                    quantity=expense.quantity,
+                    unit_price=expense.unit_price,
+                    note=expense.note or expense.item_reason,
+                    category=category_ref,
+                    image_path=expense.image_path,
+                )
             )
 
-        result: list[HistoryRecord] = []
+        expenses_by_tx: dict[int, HistoryExpenseRecord] = {}
+        for receipt_id, items in items_by_receipt.items():
+            receipt, currency, category = receipt_meta[receipt_id]
+            if receipt.transaction_id is not None:
+                expenses_by_tx[receipt.transaction_id] = HistoryExpenseRecord(
+                    receipt_id=receipt.id,
+                    name=receipt.store,
+                    occurred_at=datetime.combine(receipt.date, datetime.min.time(), tzinfo=UTC),
+                    total_amount=receipt.total,
+                    note=receipt.purchase_reason,
+                    store=receipt.store,
+                    items=tuple(items),
+                    receipt_image=receipt.image,
+                )
+
+        items_out: list[HistoryRecord] = []
         for transaction, income_source in transaction_rows:
-            group = expense_groups.get(transaction.id, [])
-            result.append(
+            items_out.append(
                 HistoryRecord(
                     id=transaction.id,
                     transaction_type=transaction.transaction_type,
@@ -296,16 +412,95 @@ class SQLAlchemyExpenseRepository:
                     description=transaction.description,
                     capture_source=transaction.capture_source,
                     income_source_name=None if income_source is None else income_source.name,
-                    movements=tuple(movements.get(transaction.id, [])),
-                    expense=self._history_expense(group) if group else None,
+                    movements=tuple(movements_by_tx[transaction.id]),
+                    expense=expenses_by_tx.get(transaction.id),
                 )
             )
-        return result, total
+        return items_out, total
+
+    def _expense_projection(self, owner_id: int) -> Select[Any]:
+        parent_category = aliased(Category)
+        return (
+            select(
+                Expense,
+                Receipt,
+                FinancialTransaction,
+                AccountMovement,
+                Account,
+                Currency,
+                Category,
+                parent_category,
+            )
+            .join(Receipt, Receipt.id == Expense.receipt_id)
+            .join(FinancialTransaction, FinancialTransaction.id == Receipt.transaction_id)
+            .join(
+                AccountMovement,
+                and_(
+                    AccountMovement.transaction_id == FinancialTransaction.id,
+                    AccountMovement.user_id == owner_id,
+                ),
+            )
+            .join(
+                Account,
+                and_(Account.id == AccountMovement.account_id, Account.user_id == owner_id),
+            )
+            .join(Currency, Currency.id == Account.currency_id)
+            .outerjoin(Category, Category.id == Expense.category_id)
+            .outerjoin(parent_category, parent_category.id == Receipt.category_id)
+            .where(
+                Expense.user_id == owner_id,
+                Receipt.user_id == owner_id,
+                FinancialTransaction.user_id == owner_id,
+                FinancialTransaction.transaction_type == "expense",
+            )
+        )
+
+    def _expense_record(self, row: Any) -> ExpenseRecord:
+        expense, receipt, transaction, _movement, account, currency, category, parent_cat = row
+        effective_category = category if category is not None else parent_cat
+        return ExpenseRecord(
+            id=expense.id,
+            transaction_id=transaction.id,
+            receipt_id=receipt.id,
+            name=expense.name,
+            amount=expense.amount,
+            quantity=expense.quantity,
+            unit_price=expense.unit_price,
+            note=expense.note or expense.item_reason,
+            category=(
+                None
+                if effective_category is None
+                else CategoryReference(effective_category.id, effective_category.name)
+            ),
+            receipt_name=receipt.store,
+            receipt_note=receipt.purchase_reason,
+            store=receipt.store,
+            description=transaction.description,
+            occurred_at=transaction.occurred_at,
+            status=transaction.status,
+            capture_source=transaction.capture_source,
+            account_id=account.id,
+            account_name=account.name,
+            account_is_active=account.is_active,
+            currency=self._currency(currency),
+            created_at=expense.created_at,
+            updated_at=expense.updated_at,
+            receipt_image=receipt.image,
+            image_path=expense.image_path,
+        )
+
+    def _currency(self, currency: Currency) -> CurrencyReference:
+        return CurrencyReference(
+            id=currency.id,
+            code=currency.code,
+            name=currency.name,
+            decimals=currency.decimals,
+        )
 
     def _history_ids(self, *, owner_id: int, filters: HistoryFilters) -> Select[tuple[int]]:
         statement = select(FinancialTransaction.id).where(
             FinancialTransaction.user_id == owner_id,
-            FinancialTransaction.transaction_type.in_(("expense", "income", "transfer")),
+            FinancialTransaction.status == "confirmed",
         )
         if filters.transaction_type is not None:
             statement = statement.where(
@@ -313,12 +508,15 @@ class SQLAlchemyExpenseRepository:
             )
         if filters.start_date is not None:
             statement = statement.where(
-                FinancialTransaction.occurred_at >= self._start_of_day(filters.start_date)
+                FinancialTransaction.occurred_at
+                >= datetime.combine(filters.start_date, datetime.min.time(), tzinfo=UTC)
             )
         if filters.end_date is not None:
             statement = statement.where(
                 FinancialTransaction.occurred_at
-                < self._start_of_day(filters.end_date) + timedelta(days=1)
+                < datetime.combine(
+                    filters.end_date + timedelta(days=1), datetime.min.time(), tzinfo=UTC
+                )
             )
         if filters.account_id is not None:
             statement = statement.where(
@@ -388,128 +586,6 @@ class SQLAlchemyExpenseRepository:
             )
         return statement
 
-    def _expense_projection(self, owner_id: int) -> Select[Any]:
-        parent_category = aliased(Category)
-        return (
-            select(
-                Expense,
-                Receipt,
-                FinancialTransaction,
-                AccountMovement,
-                Account,
-                Currency,
-                Category,
-                parent_category,
-            )
-            .join(Receipt, Receipt.id == Expense.receipt_id)
-            .join(FinancialTransaction, FinancialTransaction.id == Receipt.transaction_id)
-            .join(
-                AccountMovement,
-                and_(
-                    AccountMovement.transaction_id == FinancialTransaction.id,
-                    AccountMovement.user_id == owner_id,
-                ),
-            )
-            .join(
-                Account,
-                and_(Account.id == AccountMovement.account_id, Account.user_id == owner_id),
-            )
-            .join(Currency, Currency.id == Account.currency_id)
-            .outerjoin(Category, Category.id == Expense.category_id)
-            .outerjoin(Subcategory, Subcategory.id == Expense.subcategory_id)
-            .outerjoin(parent_category, parent_category.id == Subcategory.category_id)
-            .where(
-                Expense.user_id == owner_id,
-                Receipt.user_id == owner_id,
-                FinancialTransaction.user_id == owner_id,
-                FinancialTransaction.transaction_type == "expense",
-            )
-        )
-
-    @staticmethod
-    def _expense_record(row: Any) -> ExpenseRecord:
-        expense, receipt, transaction, _movement, account, currency, category, legacy_category = row
-        selected_category = category or legacy_category
-        return ExpenseRecord(
-            id=expense.id,
-            transaction_id=transaction.id,
-            receipt_id=receipt.id,
-            name=expense.name,
-            amount=expense.amount,
-            quantity=expense.quantity,
-            unit_price=expense.unit_price,
-            note=expense.note or expense.item_reason,
-            category=None
-            if selected_category is None
-            else CategoryReference(selected_category.id, selected_category.name),
-            receipt_name=receipt.store,
-            receipt_note=receipt.purchase_reason,
-            store=receipt.store,
-            description=transaction.description,
-            occurred_at=transaction.occurred_at,
-            status=transaction.status,
-            capture_source=transaction.capture_source,
-            account_id=account.id,
-            account_name=account.name,
-            account_is_active=account.is_active,
-            currency=SQLAlchemyExpenseRepository._currency(currency),
-            created_at=expense.created_at,
-            updated_at=expense.updated_at,
-            receipt_image=receipt.image,
-            image_path=expense.image_path,
-        )
-
-    @staticmethod
-    def _history_expense(
-        group: list[tuple[Expense, Receipt, Category | None, Category | None]],
-    ) -> HistoryExpenseRecord:
-        _first_expense, receipt, _, _ = group[0]
-        return HistoryExpenseRecord(
-            receipt_id=receipt.id,
-            name=receipt.store,
-            occurred_at=datetime.combine(receipt.date, datetime.min.time(), tzinfo=UTC),
-            total_amount=receipt.total,
-            note=receipt.purchase_reason,
-            store=receipt.store,
-            receipt_image=receipt.image,
-            items=tuple(
-                ExpenseItemRecord(
-                    id=expense.id,
-                    name=expense.name,
-                    amount=expense.amount,
-                    quantity=expense.quantity,
-                    unit_price=expense.unit_price,
-                    note=expense.note or expense.item_reason,
-                    category=SQLAlchemyExpenseRepository._category_reference(
-                        category, legacy_category
-                    ),
-                    image_path=expense.image_path,
-                )
-                for expense, _, category, legacy_category in group
-            ),
-        )
-
-    @staticmethod
-    def _currency(currency: Currency) -> CurrencyReference:
-        return CurrencyReference(
-            id=currency.id,
-            code=currency.code,
-            name=currency.name,
-            decimals=currency.decimals,
-        )
-
-    @staticmethod
-    def _category_reference(
-        category: Category | None, legacy_category: Category | None
-    ) -> CategoryReference | None:
-        selected = category if category is not None else legacy_category
-        return None if selected is None else CategoryReference(selected.id, selected.name)
-
-    @staticmethod
-    def _start_of_day(value: date) -> datetime:
-        return datetime(value.year, value.month, value.day, tzinfo=UTC)
-
-    @staticmethod
-    def _search_pattern(value: str) -> str:
-        escaped = value.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    def _search_pattern(self, raw: str) -> str:
+        escaped = raw.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         return f"%{escaped}%"

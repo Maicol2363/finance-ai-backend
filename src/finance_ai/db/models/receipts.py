@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from finance_ai.db.base import Base, BigIntPK
-from finance_ai.db.models.catalogs import Category, PaymentMethod, Subcategory
+from finance_ai.db.models.catalogs import Category, PaymentMethod, Store, Subcategory
 from finance_ai.db.models.identity import AppUser
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.transactions import FinancialTransaction
@@ -27,7 +27,10 @@ from finance_ai.db.models.transactions import FinancialTransaction
 
 class Receipt(Base):
     __tablename__ = "receipt"
-    __table_args__ = (CheckConstraint("total > 0", name="receipt_total_positive"),)
+    __table_args__ = (
+        CheckConstraint("total > 0", name="receipt_total_positive"),
+        Index("idx_receipt_store_date", "store_id", "date"),
+    )
 
     id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -35,6 +38,9 @@ class Receipt(Base):
     )
     transaction_id: Mapped[int | None] = mapped_column(
         ForeignKey("financial_transaction.id", ondelete="CASCADE")
+    )
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("store.id", ondelete="SET NULL"), nullable=True
     )
     store: Mapped[str] = mapped_column(String(150), nullable=False)
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
@@ -60,6 +66,7 @@ class Receipt(Base):
     currency: Mapped[Currency] = relationship()
     payment_method: Mapped[PaymentMethod] = relationship()
     category: Mapped[Category | None] = relationship()
+    store_rel: Mapped[Store | None] = relationship()
     expenses: Mapped[list[Expense]] = relationship(
         back_populates="receipt", cascade="all, delete-orphan"
     )
@@ -105,19 +112,6 @@ class Expense(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    user: Mapped[AppUser] = relationship()
     receipt: Mapped[Receipt] = relationship(back_populates="expenses")
     category: Mapped[Category | None] = relationship()
     subcategory: Mapped[Subcategory | None] = relationship()
-
-
-Index("idx_receipt_user_id", Receipt.user_id)
-Index("idx_receipt_date", Receipt.date)
-Index("idx_receipt_payment", Receipt.payment_method_id)
-Index("uq_receipt_transaction_id", Receipt.transaction_id, unique=True)
-Index("idx_receipt_category_date", Receipt.category_id, Receipt.date)
-
-Index("idx_expense_user_id", Expense.user_id)
-Index("idx_expense_receipt", Expense.receipt_id)
-Index("idx_expense_subcat", Expense.subcategory_id)
-Index("ix_expense_category", Expense.category_id)

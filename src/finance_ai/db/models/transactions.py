@@ -33,7 +33,9 @@ class FinancialTransaction(Base):
             name="status_supported",
         ),
         CheckConstraint(
-            "capture_source IN ('manual', 'ai', 'import')",
+            "capture_source IN ("
+            "'manual', 'ai', 'text_ai', 'audio_ai', 'receipt_photo_ai', 'import'"
+            ")",
             name="capture_source_supported",
         ),
         CheckConstraint(
@@ -54,7 +56,7 @@ class FinancialTransaction(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     description: Mapped[str | None] = mapped_column(String(500))
-    capture_source: Mapped[str] = mapped_column(String(16), nullable=False)
+    capture_source: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -67,6 +69,12 @@ class AccountMovement(Base):
     __tablename__ = "account_movement"
     __table_args__ = (
         CheckConstraint("amount <> 0", name="amount_non_zero"),
+        Index(
+            "ix_account_movement_user_account",
+            "user_id",
+            "account_id",
+            "transaction_id",
+        ),
         ForeignKeyConstraint(
             ["transaction_id", "user_id"],
             ["financial_transaction.id", "financial_transaction.user_id"],
@@ -113,13 +121,6 @@ Index(
     AccountMovement.transaction_id,
 )
 Index(
-    "ix_account_movement_user_account",
-    AccountMovement.user_id,
-    AccountMovement.account_id,
+    "ix_account_movement_transaction_id",
     AccountMovement.transaction_id,
-)
-Index(
-    "ix_account_movement_transaction",
-    AccountMovement.transaction_id,
-    AccountMovement.id,
 )

@@ -16,7 +16,12 @@ from finance_ai.expenses.repositories import (
     HistoryRecord,
 )
 from finance_ai.expenses.router import get_authenticated_principal
-from finance_ai.expenses.schemas import ExpenseListResult, ExpenseUpdateCommand, HistoryResult
+from finance_ai.expenses.schemas import (
+    CreateExpenseCommand,
+    ExpenseListResult,
+    ExpenseUpdateCommand,
+    HistoryResult,
+)
 from finance_ai.main import create_app
 
 NOW = datetime(2026, 9, 15, 12, 30, tzinfo=UTC)
@@ -54,6 +59,12 @@ class StubExpenseService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
         self.failure: Exception | None = None
+
+    def create(self, *, owner_id: int, command: CreateExpenseCommand) -> ExpenseRecord:
+        self.calls.append(("create", (owner_id, command)))
+        if self.failure:
+            raise self.failure
+        return expense_record()
 
     def list(self, *, owner_id: int, page: int, page_size: int) -> ExpenseListResult:
         self.calls.append(("list", (owner_id, page, page_size)))
@@ -116,6 +127,64 @@ def expense_client() -> Iterator[tuple[TestClient, StubExpenseService]]:
     app.dependency_overrides[get_authenticated_principal] = lambda: principal
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client, service
+
+
+def test_expense_create_endpoint_success(
+    expense_client: tuple[TestClient, StubExpenseService],
+) -> None:
+    client, service = expense_client
+
+    response = client.post(
+        "/api/v1/expenses",
+        json={
+            "account_id": 11,
+            "amount": "25.00",
+            "merchant": "Supermarket",
+            "category_id": 3,
+            "note": "Weekly groceries",
+            "occurred_at": "2026-09-15T12:30:00Z",
+        },
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["id"] == 7
+    assert data["amount"] == "25.00"
+    assert data["currency"]["code"] == "COP"
+    assert len(service.calls) == 1
+    assert service.calls[0][0] == "create"
+    assert service.calls[0][1][0] == 42
+    cmd = service.calls[0][1][1]
+    assert cmd.account_id == 11
+    assert cmd.amount == Decimal("25.00")
+    assert cmd.merchant == "Supermarket"
+    assert cmd.category_id == 3
+
+
+def test_expense_create_validates_required_fields(
+    expense_client: tuple[TestClient, StubExpenseService],
+) -> None:
+    client, _ = expense_client
+
+    empty_merchant = client.post(
+        "/api/v1/expenses",
+        json={
+            "account_id": 11,
+            "amount": "25.00",
+            "merchant": "   ",
+        },
+    )
+    negative_amount = client.post(
+        "/api/v1/expenses",
+        json={
+            "account_id": 11,
+            "amount": "-5.00",
+            "merchant": "Store",
+        },
+    )
+
+    assert empty_merchant.status_code == 422
+    assert negative_amount.status_code == 422
 
 
 def test_expense_routes_use_authenticated_owner(
