@@ -17,7 +17,6 @@ from finance_ai.expenses.schemas import (
     ExpenseListResponse,
     ExpenseResponse,
     ExpenseUpdateRequest,
-    HistoryItemResponse,
     HistoryPeriod,
     HistoryResponse,
     TransactionType,
@@ -143,6 +142,7 @@ def get_history(
     principal: Annotated[PublicAuthenticatedUser, Depends(get_authenticated_principal)],
     service: Annotated[ExpenseService, Depends(get_expense_service)],
     search: Annotated[str | None, Query(max_length=200)] = None,
+    type: Annotated[TransactionType | None, Query()] = None,
     transaction_type: Annotated[TransactionType | None, Query()] = None,
     category_id: Annotated[int | None, Query(gt=0)] = None,
     account_id: Annotated[int | None, Query(gt=0)] = None,
@@ -152,10 +152,11 @@ def get_history(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> HistoryResponse:
+    effective_type = type if type is not None else transaction_type
     result = service.history(
         owner_id=principal.user_id,
         search=search,
-        transaction_type=None if transaction_type is None else transaction_type.value,
+        transaction_type=None if effective_type is None else effective_type.value,
         category_id=category_id,
         account_id=account_id,
         period=period,
@@ -164,10 +165,4 @@ def get_history(
         page=page,
         page_size=page_size,
     )
-    return HistoryResponse(
-        items=[HistoryItemResponse.from_record(item) for item in result.items],
-        total=result.total,
-        page=result.page,
-        page_size=result.page_size,
-        has_next=result.has_next,
-    )
+    return HistoryResponse.from_result(result)

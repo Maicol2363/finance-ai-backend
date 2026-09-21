@@ -59,18 +59,19 @@ class ExpenseItemRecord:
     unit_price: Decimal | None
     note: str | None
     category: CategoryReference | None
+    image_path: str | None = None
 
 
 @dataclass(frozen=True)
 class HistoryExpenseRecord:
-    id: int
     receipt_id: int
+    name: str
+    occurred_at: datetime
+    total_amount: Decimal
+    note: str | None
     store: str
-    total: Decimal
-    currency: CurrencyReference
-    category: CategoryReference | None
-    purchase_reason: str | None
     items: tuple[ExpenseItemRecord, ...]
+    receipt_image: str | None = None
 
 
 @dataclass(frozen=True)

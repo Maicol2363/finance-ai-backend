@@ -293,6 +293,7 @@ class HistoryExpenseItemResponse(BaseModel):
     unit_price: str | None
     note: str | None
     category: CategoryResponse | None
+    image_path: str | None = None
 
     @classmethod
     def from_record(cls, item: ExpenseItemRecord) -> HistoryExpenseItemResponse:
@@ -304,32 +305,37 @@ class HistoryExpenseItemResponse(BaseModel):
             unit_price=None if item.unit_price is None else format_money(item.unit_price),
             note=item.note,
             category=CategoryResponse.from_record(item.category),
+            image_path=item.image_path,
         )
 
 
 class HistoryExpenseResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: int
     receipt_id: int
+    name: str
+    occurred_at: datetime
+    purchased_at: datetime
+    total_amount: str
+    note: str | None
     store: str
-    total: str
-    currency: CurrencyResponse
-    category: CategoryResponse | None
-    purchase_reason: str | None
+    store_name: str
     items: list[HistoryExpenseItemResponse]
+    receipt_image: str | None
 
     @classmethod
     def from_record(cls, expense: HistoryExpenseRecord) -> HistoryExpenseResponse:
         return cls(
-            id=expense.id,
             receipt_id=expense.receipt_id,
+            name=expense.name,
+            occurred_at=expense.occurred_at,
+            purchased_at=expense.occurred_at,
+            total_amount=format_money(expense.total_amount),
+            note=expense.note,
             store=expense.store,
-            total=format_money(expense.total),
-            currency=CurrencyResponse.from_record(expense.currency),
-            category=CategoryResponse.from_record(expense.category),
-            purchase_reason=expense.purchase_reason,
+            store_name=expense.store,
             items=[HistoryExpenseItemResponse.from_record(item) for item in expense.items],
+            receipt_image=expense.receipt_image,
         )
 
 
@@ -340,6 +346,7 @@ class HistoryMovementResponse(BaseModel):
     account_name: str
     amount: str
     currency: CurrencyResponse
+    currency_code: str
 
     @classmethod
     def from_record(cls, movement: HistoryMovementRecord) -> HistoryMovementResponse:
@@ -348,6 +355,7 @@ class HistoryMovementResponse(BaseModel):
             account_name=movement.account_name,
             amount=format_money(movement.amount),
             currency=CurrencyResponse.from_record(movement.currency),
+            currency_code=movement.currency.code,
         )
 
 
@@ -355,12 +363,12 @@ class HistoryItemResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: int
-    transaction_type: str
+    type: TransactionType
     status: str
     occurred_at: datetime
     description: str | None
     capture_source: str
-    income_source_name: str | None
+    income_source: str | None
     movements: list[HistoryMovementResponse]
     expense: HistoryExpenseResponse | None
 
@@ -368,12 +376,12 @@ class HistoryItemResponse(BaseModel):
     def from_record(cls, record: HistoryRecord) -> HistoryItemResponse:
         return cls(
             id=record.id,
-            transaction_type=record.transaction_type,
+            type=TransactionType(record.transaction_type),
             status=record.status,
             occurred_at=record.occurred_at,
             description=record.description,
             capture_source=record.capture_source,
-            income_source_name=record.income_source_name,
+            income_source=record.income_source_name,
             movements=[HistoryMovementResponse.from_record(m) for m in record.movements],
             expense=(
                 None
@@ -391,3 +399,13 @@ class HistoryResponse(BaseModel):
     page: int
     page_size: int
     has_next: bool
+
+    @classmethod
+    def from_result(cls, result: HistoryResult) -> HistoryResponse:
+        return cls(
+            items=[HistoryItemResponse.from_record(item) for item in result.items],
+            total=result.total,
+            page=result.page,
+            page_size=result.page_size,
+            has_next=result.has_next,
+        )

@@ -382,6 +382,7 @@ class SQLAlchemyExpenseRepository:
                     unit_price=expense.unit_price,
                     note=expense.note or expense.item_reason,
                     category=category_ref,
+                    image_path=expense.image_path,
                 )
             )
 
@@ -389,18 +390,15 @@ class SQLAlchemyExpenseRepository:
         for receipt_id, items in items_by_receipt.items():
             receipt, currency, category = receipt_meta[receipt_id]
             if receipt.transaction_id is not None:
-                category_ref = (
-                    None if category is None else CategoryReference(category.id, category.name)
-                )
                 expenses_by_tx[receipt.transaction_id] = HistoryExpenseRecord(
-                    id=items[0].id if len(items) == 1 else receipt.id,
                     receipt_id=receipt.id,
+                    name=receipt.store,
+                    occurred_at=datetime.combine(receipt.date, datetime.min.time(), tzinfo=UTC),
+                    total_amount=receipt.total,
+                    note=receipt.purchase_reason,
                     store=receipt.store,
-                    total=receipt.total,
-                    currency=self._currency(currency),
-                    category=category_ref,
-                    purchase_reason=receipt.purchase_reason,
                     items=tuple(items),
+                    receipt_image=receipt.image,
                 )
 
         items_out: list[HistoryRecord] = []
