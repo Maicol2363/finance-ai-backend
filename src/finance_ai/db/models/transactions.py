@@ -69,6 +69,12 @@ class AccountMovement(Base):
     __tablename__ = "account_movement"
     __table_args__ = (
         CheckConstraint("amount <> 0", name="amount_non_zero"),
+        Index(
+            "ix_account_movement_user_account",
+            "user_id",
+            "account_id",
+            "transaction_id",
+        ),
         ForeignKeyConstraint(
             ["transaction_id", "user_id"],
             ["financial_transaction.id", "financial_transaction.user_id"],

@@ -388,45 +388,45 @@
         "title": "CurrencyResponse",
         "type": "object"
       },
-      "ExpenseItemResponse": {
+      "ExpenseCreateRequest": {
         "additionalProperties": false,
+        "description": "Fields required to capture a manual expense (HU-006).",
         "properties": {
+          "account_id": {
+            "exclusiveMinimum": 0.0,
+            "title": "Account Id",
+            "type": "integer"
+          },
           "amount": {
+            "examples": [
+              "0.00"
+            ],
+            "pattern": "^-?\\d{1,16}(?:\\.\\d{1,2})?$",
             "title": "Amount",
             "type": "string"
           },
-          "category": {
+          "category_id": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/finance_ai__expenses__schemas__CategoryResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "image_path": {
-            "anyOf": [
-              {
-                "type": "string"
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Image Path"
+            "title": "Category Id"
           },
-          "name": {
-            "title": "Name",
+          "merchant": {
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Merchant",
             "type": "string"
           },
           "note": {
             "anyOf": [
               {
+                "maxLength": 5000,
                 "type": "string"
               },
               {
@@ -435,33 +435,25 @@
             ],
             "title": "Note"
           },
-          "quantity": {
-            "title": "Quantity",
-            "type": "string"
-          },
-          "unit_price": {
+          "occurred_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Unit Price"
+            "title": "Occurred At"
           }
         },
         "required": [
-          "id",
-          "name",
+          "account_id",
           "amount",
-          "quantity",
-          "unit_price",
-          "note",
-          "category",
-          "image_path"
+          "merchant"
         ],
-        "title": "ExpenseItemResponse",
+        "title": "ExpenseCreateRequest",
         "type": "object"
       },
       "ExpenseListResponse": {
@@ -807,12 +799,87 @@
         "title": "ExpenseUpdateRequest",
         "type": "object"
       },
+      "HistoryExpenseItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/finance_ai__expenses__schemas__CategoryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "image_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Path"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "amount",
+          "quantity",
+          "unit_price",
+          "note",
+          "category"
+        ],
+        "title": "HistoryExpenseItemResponse",
+        "type": "object"
+      },
       "HistoryExpenseResponse": {
         "additionalProperties": false,
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ExpenseItemResponse"
+              "$ref": "#/components/schemas/HistoryExpenseItemResponse"
             },
             "title": "Items",
             "type": "array"
@@ -3536,6 +3603,121 @@
           "Expenses",
           "History"
         ]
+      },
+      "post": {
+        "operationId": "create_expense_api_v1_expenses_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create Expense",
+        "tags": [
+          "Expenses",
+          "History"
+        ]
       }
     },
     "/api/v1/expenses/{expense_id}": {
@@ -3896,7 +4078,7 @@
     },
     "/api/v1/history": {
       "get": {
-        "operationId": "history_api_v1_history_get",
+        "operationId": "get_history_api_v1_history_get",
         "parameters": [
           {
             "in": "query",
@@ -3905,7 +4087,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 100,
+                  "maxLength": 200,
                   "type": "string"
                 },
                 {
@@ -3929,6 +4111,22 @@
                 }
               ],
               "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "transaction_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TransactionType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Transaction Type"
             }
           },
           {
@@ -4136,7 +4334,7 @@
             "BearerAuth": []
           }
         ],
-        "summary": "History",
+        "summary": "Get History",
         "tags": [
           "Expenses",
           "History"
