@@ -587,11 +587,5 @@ class SQLAlchemyExpenseRepository:
         return statement
 
     def _search_pattern(self, raw: str) -> str:
-        escaped = (
-            raw.strip()
-            .lower()
-            .replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
-        )
+        escaped = raw.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         return f"%{escaped}%"

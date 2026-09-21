@@ -63,9 +63,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         "capture_source_supported",
         "financial_transaction",
-        "capture_source IN ("
-        "'manual', 'ai', 'text_ai', 'audio_ai', 'receipt_photo_ai', 'import'"
-        ")",
+        "capture_source IN ('manual', 'ai', 'text_ai', 'audio_ai', 'receipt_photo_ai', 'import')",
     )
 
     # 4. Create budget table

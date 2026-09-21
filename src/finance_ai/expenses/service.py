@@ -42,13 +42,9 @@ class ExpenseService:
         command: CreateExpenseCommand,
     ) -> ExpenseRecord:
         if command.amount <= Decimal("0") or command.amount > MONEY_MAX:
-            raise RequestInvalidError(
-                {"amount": [f"Amount must be between 0.01 and {MONEY_MAX}."]}
-            )
+            raise RequestInvalidError({"amount": [f"Amount must be between 0.01 and {MONEY_MAX}."]})
         if not command.merchant.strip():
-            raise RequestInvalidError(
-                {"merchant": ["Merchant cannot be empty."]}
-            )
+            raise RequestInvalidError({"merchant": ["Merchant cannot be empty."]})
 
         with self.uow_factory() as uow:
             account_currency = uow.expenses.active_account_currency(
@@ -57,11 +53,8 @@ class ExpenseService:
             if account_currency is None:
                 raise ExpenseAccountInvalidError
 
-            if (
-                command.category_id is not None
-                and not uow.expenses.category_owned(
-                    owner_id=owner_id, category_id=command.category_id
-                )
+            if command.category_id is not None and not uow.expenses.category_owned(
+                owner_id=owner_id, category_id=command.category_id
             ):
                 raise ExpenseCategoryNotFoundError
 
