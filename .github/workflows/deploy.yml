@@ -1,57 +1,109 @@
 # ──────────────────────────────────────────────
-# Finance AI Backend — CD: Deploy to Azure VM
+# Finance AI Backend — CD: Deploy to Google Cloud Run
 # ──────────────────────────────────────────────
 # Runs ONLY after the Backend CI workflow succeeds on main.
-# On failure: does NOT block the CI — you get CI green and
-# a failed deploy separately.
 # ──────────────────────────────────────────────
-name: Deploy to Azure VM
+name: Deploy to Google Cloud Run
 
 on:
   workflow_run:
     workflows: ["Backend CI"]
     types: [completed]
-    branches: [main]
+    branches: [main, develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: finance-ai-api
+  REGION: southamerica-east1
+  SERVICE_NAME: finance-api
 
 jobs:
   deploy:
-    name: Deploy to Azure VM
+    name: Deploy to Cloud Run
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency: deploy-group
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          host: ${{ secrets.AZURE_VM_HOST }}
-          username: ${{ secrets.AZURE_VM_USER }}
-          key: ${{ secrets.AZURE_VM_SSH_KEY }}
-          port: ${{ secrets.AZURE_VM_PORT || 22 }}
-          script: |
-            set -euo pipefail
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-            echo "=== Pulling latest code ==="
-            cd /opt/finance-ai
-            sudo -u finance-ai git pull --ff-only origin main
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
-            echo "=== Syncing dependencies ==="
-            sudo -u finance-ai uv sync --frozen --no-dev
+      - name: Configure Docker authentication
+        run: |
+          gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" --quiet
 
-            echo "=== Running database migrations ==="
-            sudo -u finance-ai .venv/bin/alembic upgrade head
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
-            echo "=== Restarting backend ==="
-            sudo systemctl restart finance-ai-backend
+      - name: Run database migrations (Neon)
+        env:
+          FINANCE_AI_DATABASE_URL: ${{ secrets.FINANCE_AI_DATABASE_URL }}
+        if: env.FINANCE_AI_DATABASE_URL != ''
+        run: |
+          uv sync --frozen --no-dev
+          uv run alembic upgrade head
 
-            echo "=== Health check ==="
-            sleep 3
-            curl -fsS http://127.0.0.1:8000/health/live \
-              && echo " [OK]" \
-              || echo " [WARN] Health check failed — check journalctl -u finance-ai-backend"
+      - name: Build runtime container
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/finance-ai/backend:${{ github.sha }}"
+          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+          docker build \
+            --target runtime \
+            --tag "$IMAGE" \
+            .
+
+      - name: Push container to Artifact Registry
+        run: |
+          docker push "$IMAGE"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${{ env.SERVICE_NAME }}" \
+            --project="${{ env.PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --image="$IMAGE" \
+            --port=8000 \
+            --memory=512Mi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=3 \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Verify deployment health
+        run: |
+          URL=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
+            --project="${{ env.PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --format='value(status.url)')
+
+          echo "Target service URL: $URL"
+          echo "Checking /health/live..."
+          curl -fsS "$URL/health/live"
+          echo ""
+
+          echo "Checking protected endpoint..."
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "$URL/api/v1/income-sources")
+          echo "Protected endpoint response: HTTP $STATUS"
+          if [ "$STATUS" != "401" ]; then
+            echo "Expected HTTP 401 from protected endpoint, got $STATUS"
+            exit 1
+          fi
+
+          echo "Cloud Run deployment successfully verified."
