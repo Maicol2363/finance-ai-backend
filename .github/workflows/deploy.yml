@@ -58,6 +58,7 @@ jobs:
         run: |
           uv sync --frozen --no-dev
           uv run alembic upgrade head
+          uv run python -m finance_ai.db.seeds
 
       - name: Build runtime container
         run: |

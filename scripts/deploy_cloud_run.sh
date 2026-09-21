@@ -35,7 +35,8 @@ if [ -z "${FINANCE_AI_DATABASE_URL:-}" ]; then
 fi
 
 uv run alembic upgrade head
-echo "Alembic migrations up to date on Neon."
+uv run python -m finance_ai.db.seeds
+echo "Alembic migrations and database seeds up to date on Neon."
 
 echo "=== 4. Building container image (--target runtime) ==="
 COMMIT_HASH=$(git rev-parse HEAD)
