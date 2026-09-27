@@ -36,6 +36,7 @@ class OwnedCatalogMixin:
 class Category(Base):
     __tablename__ = "category"
     __table_args__ = (
+        UniqueConstraint("id", "user_id", name="uq_category_id_user_id"),
         CheckConstraint("name = btrim(name) AND char_length(name) > 0", name="name_trimmed"),
         CheckConstraint(
             "color IN ('blue', 'green', 'orange', 'purple', 'pink', "

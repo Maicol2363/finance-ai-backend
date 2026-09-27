@@ -247,6 +247,38 @@ class CategoryOrderInvalidError(AppError):
         )
 
 
+class BudgetNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="budget_not_found",
+            title="Budget not found",
+            detail="The requested budget is unavailable.",
+        )
+
+
+class BudgetCategoryUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="budget_category_unavailable",
+            title="Budget category is unavailable",
+            detail="Select one of your categories.",
+            field_errors={"category_id": ["Select one of your categories."]},
+        )
+
+
+class BudgetCurrencyInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="budget_currency_invalid",
+            title="Budget currency is unavailable",
+            detail="Select a currently supported currency.",
+            field_errors={"currency_code": ["Select a currently supported currency."]},
+        )
+
+
 class IncomeSourceValidationError(AppError):
     def __init__(self, message: str) -> None:
         super().__init__(

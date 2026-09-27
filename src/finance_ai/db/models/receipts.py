@@ -82,6 +82,7 @@ class Expense(Base):
             "unit_price IS NULL OR unit_price >= 0", name="expense_unit_price_non_negative"
         ),
         UniqueConstraint("receipt_id", "position", name="uq_expense_receipt_position"),
+        Index("ix_expense_budget_progress", "user_id", "category_id", "receipt_id"),
     )
 
     id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
@@ -115,3 +116,12 @@ class Expense(Base):
     receipt: Mapped[Receipt] = relationship(back_populates="expenses")
     category: Mapped[Category | None] = relationship()
     subcategory: Mapped[Subcategory | None] = relationship()
+
+
+Index(
+    "ix_receipt_budget_progress",
+    Receipt.user_id,
+    Receipt.currency_id,
+    Receipt.date,
+    Receipt.transaction_id,
+)
