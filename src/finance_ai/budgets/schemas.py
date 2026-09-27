@@ -37,6 +37,7 @@ class BudgetView:
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    name: str = "Budget"
 
     @property
     def remaining_amount(self) -> Decimal:
@@ -57,46 +58,106 @@ class BudgetListResult:
 
 @dataclass(frozen=True)
 class BudgetCreateCommand:
-    category_id: int
+    category_id: int | None
     amount: Decimal
     currency_code: str
-    period: BudgetPeriod
+    period: BudgetPeriod | None = None
+    name: str | None = None
+    schedule: BudgetScheduleCommand | None = None
 
 
 @dataclass(frozen=True)
 class BudgetUpdateCommand:
     category_id: int | None = None
+    category_changed: bool = False
+    name: str | None = None
+    name_changed: bool = False
     amount: Decimal | None = None
     currency_code: str | None = None
     period: BudgetPeriod | None = None
+    schedule: BudgetScheduleCommand | None = None
+
+
+@dataclass(frozen=True)
+class BudgetScheduleCommand:
+    schedule_type: ScheduleType
+    frequency_unit: FrequencyUnit | None
+    frequency_interval: int | None
+    starts_on: date
+    ends_on: date | None
+
+
+class BudgetScheduleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schedule_type: ScheduleType
+    frequency_unit: FrequencyUnit | None = None
+    frequency_interval: int | None = Field(default=None, ge=1, le=999)
+    starts_on: date
+    ends_on: date | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> BudgetScheduleInput:
+        if self.ends_on is not None and self.ends_on < self.starts_on:
+            raise ValueError("End date cannot be before start date")
+        recurring = self.schedule_type is ScheduleType.RECURRING
+        has_frequency = self.frequency_unit is not None and self.frequency_interval is not None
+        if recurring and not has_frequency:
+            raise ValueError("A recurring budget requires a frequency and interval")
+        if not recurring and (
+            self.frequency_unit is not None or self.frequency_interval is not None
+        ):
+            raise ValueError("A one-time budget cannot include recurring frequency fields")
+        return self
+
+    def to_command(self) -> BudgetScheduleCommand:
+        return BudgetScheduleCommand(
+            schedule_type=self.schedule_type,
+            frequency_unit=self.frequency_unit,
+            frequency_interval=self.frequency_interval,
+            starts_on=self.starts_on,
+            ends_on=self.ends_on,
+        )
 
 
 class BudgetCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    category_id: int = Field(gt=0)
+    category_id: Annotated[int, Field(gt=0)] | None = None
+    name: Annotated[str, Field(max_length=120)] | None = None
     amount: MoneyInput = Field(gt=0)
     currency_code: str = Field(min_length=3, max_length=10)
-    period: BudgetPeriod
+    period: BudgetPeriod | None = None
+    schedule: BudgetScheduleInput | None = None
+
+    @model_validator(mode="after")
+    def require_schedule_choice(self) -> BudgetCreateRequest:
+        if (self.period is None) == (self.schedule is None):
+            raise ValueError("Choose either a simple period or an advanced schedule")
+        return self
 
     def to_command(self) -> BudgetCreateCommand:
         return BudgetCreateCommand(
             category_id=self.category_id,
+            name=self.name,
             amount=self.amount,
             currency_code=self.currency_code,
             period=self.period,
+            schedule=None if self.schedule is None else self.schedule.to_command(),
         )
 
 
 class BudgetUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    category_id: Annotated[int, Field(gt=0)] | SkipJsonSchema[None] = None
+    category_id: Annotated[int, Field(gt=0)] | None = None
+    name: Annotated[str, Field(max_length=120)] | None = None
     amount: MoneyInput | SkipJsonSchema[None] = None
     currency_code: Annotated[str, Field(min_length=3, max_length=10)] | SkipJsonSchema[None] = None
     period: BudgetPeriod | SkipJsonSchema[None] = None
+    schedule: BudgetScheduleInput | SkipJsonSchema[None] = None
 
-    @field_validator("category_id", "amount", "currency_code", "period", mode="after")
+    @field_validator("amount", "currency_code", "period", "schedule", mode="after")
     @classmethod
     def reject_explicit_null(cls, value: object) -> object:
         if value is None:
@@ -109,15 +170,25 @@ class BudgetUpdateRequest(BaseModel):
             raise ValueError("At least one field is required")
         if self.amount is not None and self.amount <= 0:
             raise ValueError("Amount must be positive")
+        if "period" in self.model_fields_set and "schedule" in self.model_fields_set:
+            raise ValueError("Choose either a simple period or an advanced schedule")
         return self
 
     def to_command(self) -> BudgetUpdateCommand:
         fields = self.model_fields_set
         return BudgetUpdateCommand(
             category_id=self.category_id if "category_id" in fields else None,
+            category_changed="category_id" in fields,
+            name=self.name if "name" in fields else None,
+            name_changed="name" in fields,
             amount=self.amount if "amount" in fields else None,
             currency_code=self.currency_code if "currency_code" in fields else None,
             period=self.period if "period" in fields else None,
+            schedule=(
+                None
+                if "schedule" not in fields or self.schedule is None
+                else self.schedule.to_command()
+            ),
         )
 
 
@@ -138,6 +209,7 @@ class BudgetResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: int
+    name: str
     category: BudgetCategoryResponse | None
     currency: CurrencyResponse
     amount: str
@@ -159,6 +231,7 @@ class BudgetResponse(BaseModel):
     def from_result(cls, value: BudgetView) -> BudgetResponse:
         return cls(
             id=value.id,
+            name=value.name,
             category=(
                 None
                 if value.category is None

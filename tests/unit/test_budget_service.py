@@ -7,14 +7,18 @@ from decimal import Decimal
 import pytest
 
 from finance_ai.accounts.schemas import CurrencySummary
-from finance_ai.budgets.periods import BudgetPeriod, FrequencyUnit
+from finance_ai.budgets.periods import BudgetPeriod, FrequencyUnit, ScheduleType
 from finance_ai.budgets.policy import BudgetPolicy
 from finance_ai.budgets.repositories import (
     BudgetCategoryRecord,
     BudgetRecord,
     DailySpendingRecord,
 )
-from finance_ai.budgets.schemas import BudgetCreateCommand, BudgetUpdateCommand
+from finance_ai.budgets.schemas import (
+    BudgetCreateCommand,
+    BudgetScheduleCommand,
+    BudgetUpdateCommand,
+)
 from finance_ai.budgets.service import BudgetService
 from finance_ai.core.errors import (
     BudgetCategoryUnavailableError,
@@ -73,7 +77,8 @@ class FakeBudgets:
         currency = next(
             item for item in self.store.currencies.values() if item.id == values["currency_id"]
         )
-        category = self.store.categories[int(values["category_id"])]
+        category_id = values["category_id"]
+        category = None if category_id is None else self.store.categories[int(category_id)]
         self.store.budgets[item_id] = BudgetRecord(
             id=item_id,
             user_id=int(values["owner_id"]),
@@ -83,9 +88,9 @@ class FakeBudgets:
             amount=values["amount"],  # type: ignore[arg-type]
             schedule_type=values["schedule_type"],  # type: ignore[arg-type]
             frequency_unit=values["frequency_unit"],  # type: ignore[arg-type]
-            frequency_interval=int(values["frequency_interval"]),
+            frequency_interval=values["frequency_interval"],  # type: ignore[arg-type]
             starts_on=values["starts_on"],  # type: ignore[arg-type]
-            ends_on=None,
+            ends_on=values["ends_on"],  # type: ignore[arg-type]
             is_active=True,
             created_at=NOW,
             updated_at=NOW,
@@ -97,9 +102,9 @@ class FakeBudgets:
         current = self.store.budgets[budget_id]
         category_id = values["category_id"]
         currency_id = values["currency_id"]
-        category = (
-            current.category if category_id is None else self.store.categories[int(category_id)]
-        )
+        category = current.category
+        if values["category_changed"]:
+            category = None if category_id is None else self.store.categories[int(category_id)]
         currency = current.currency
         if currency_id is not None:
             currency = next(
@@ -111,12 +116,23 @@ class FakeBudgets:
             currency=currency,
             name=current.name if values["name"] is None else str(values["name"]),
             amount=current.amount if values["amount"] is None else values["amount"],  # type: ignore[arg-type]
+            schedule_type=(
+                current.schedule_type
+                if values["schedule_type"] is None
+                else values["schedule_type"]
+            ),  # type: ignore[arg-type]
             frequency_unit=(
                 current.frequency_unit
-                if values["frequency_unit"] is None
+                if values["schedule_type"] is None
                 else values["frequency_unit"]
             ),  # type: ignore[arg-type]
+            frequency_interval=(
+                current.frequency_interval
+                if values["schedule_type"] is None
+                else values["frequency_interval"]
+            ),  # type: ignore[arg-type]
             starts_on=(current.starts_on if values["starts_on"] is None else values["starts_on"]),  # type: ignore[arg-type]
+            ends_on=(current.ends_on if values["schedule_type"] is None else values["ends_on"]),  # type: ignore[arg-type]
             updated_at=NOW,
         )
 
@@ -277,3 +293,68 @@ def test_foreign_category_and_unsupported_currency_are_rejected() -> None:
         create_budget(service, category_id=20)
     with pytest.raises(BudgetCurrencyInvalidError):
         create_budget(service, currency="EUR")
+
+
+def test_advanced_schedule_supports_custom_name_all_expenses_and_date_bounds() -> None:
+    service, store = make_service()
+    created = service.create(
+        owner_id=7,
+        command=BudgetCreateCommand(
+            category_id=None,
+            name="  Family   fortnight  ",
+            amount=Decimal("300.00"),
+            currency_code="COP",
+            schedule=BudgetScheduleCommand(
+                schedule_type=ScheduleType.RECURRING,
+                frequency_unit=FrequencyUnit.WEEK,
+                frequency_interval=2,
+                starts_on=date(2026, 9, 14),
+                ends_on=date(2026, 10, 31),
+            ),
+        ),
+    )
+    store.spending.extend(
+        [
+            DailySpendingRecord(10, COP.id, date(2026, 9, 21), Decimal("25.00")),
+            DailySpendingRecord(11, COP.id, date(2026, 9, 27), Decimal("35.00")),
+        ]
+    )
+
+    result = service.get(owner_id=7, budget_id=created.id)
+
+    assert result.name == "Family fortnight"
+    assert result.category is None
+    assert result.frequency_interval == 2
+    assert result.current_period_start == date(2026, 9, 14)
+    assert result.current_period_end == date(2026, 9, 27)
+    assert result.spent_amount == Decimal("60.00")
+
+
+def test_update_can_change_to_one_time_all_expenses_range() -> None:
+    service, _ = make_service()
+    budget = create_budget(service)
+
+    updated = service.update(
+        owner_id=7,
+        budget_id=budget.id,
+        command=BudgetUpdateCommand(
+            category_changed=True,
+            category_id=None,
+            name_changed=True,
+            name="Trip",
+            schedule=BudgetScheduleCommand(
+                schedule_type=ScheduleType.ONE_TIME,
+                frequency_unit=None,
+                frequency_interval=None,
+                starts_on=date(2026, 12, 1),
+                ends_on=date(2026, 12, 20),
+            ),
+        ),
+    )
+
+    assert updated.name == "Trip"
+    assert updated.category is None
+    assert updated.schedule_type is ScheduleType.ONE_TIME
+    assert updated.frequency_unit is None
+    assert updated.starts_on == date(2026, 12, 1)
+    assert updated.ends_on == date(2026, 12, 20)

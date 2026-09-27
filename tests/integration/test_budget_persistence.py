@@ -12,9 +12,13 @@ from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-from finance_ai.budgets.periods import BudgetPeriod
+from finance_ai.budgets.periods import BudgetPeriod, FrequencyUnit, ScheduleType
 from finance_ai.budgets.policy import BudgetPolicy
-from finance_ai.budgets.schemas import BudgetCreateCommand, BudgetUpdateCommand
+from finance_ai.budgets.schemas import (
+    BudgetCreateCommand,
+    BudgetScheduleCommand,
+    BudgetUpdateCommand,
+)
 from finance_ai.budgets.service import BudgetService
 from finance_ai.categories.policy import CategoryPolicy
 from finance_ai.categories.service import CategoryService
@@ -319,3 +323,69 @@ def test_ownership_constraint_and_category_delete_remove_only_owned_budget() -> 
             )
             == 1
         )
+
+
+def test_advanced_all_expense_schedule_round_trips_and_updates() -> None:
+    owner_id = create_user("advanced-budget@example.com")
+    food_id = create_category(owner_id, "Food")
+    transport_id = create_category(owner_id, "Transport")
+    service = budget_service()
+    created = service.create(
+        owner_id=owner_id,
+        command=BudgetCreateCommand(
+            category_id=None,
+            name="Family fortnight",
+            amount=Decimal("500.00"),
+            currency_code="COP",
+            schedule=BudgetScheduleCommand(
+                schedule_type=ScheduleType.RECURRING,
+                frequency_unit=FrequencyUnit.WEEK,
+                frequency_interval=2,
+                starts_on=date(2026, 9, 14),
+                ends_on=date(2026, 12, 31),
+            ),
+        ),
+    )
+    create_expense(
+        user_id=owner_id,
+        category_id=food_id,
+        currency_code="COP",
+        amount="10.00",
+        spent_on=date(2026, 9, 21),
+    )
+    create_expense(
+        user_id=owner_id,
+        category_id=transport_id,
+        currency_code="COP",
+        amount="20.00",
+        spent_on=date(2026, 9, 27),
+    )
+
+    current = service.get(owner_id=owner_id, budget_id=created.id)
+    assert current.category is None
+    assert current.name == "Family fortnight"
+    assert current.frequency_interval == 2
+    assert current.spent_amount == Decimal("30.00")
+
+    updated = service.update(
+        owner_id=owner_id,
+        budget_id=created.id,
+        command=BudgetUpdateCommand(
+            name="December trip",
+            name_changed=True,
+            schedule=BudgetScheduleCommand(
+                schedule_type=ScheduleType.ONE_TIME,
+                frequency_unit=None,
+                frequency_interval=None,
+                starts_on=date(2026, 12, 1),
+                ends_on=date(2026, 12, 20),
+            ),
+        ),
+    )
+
+    assert updated.name == "December trip"
+    assert updated.schedule_type is ScheduleType.ONE_TIME
+    assert updated.frequency_unit is None
+    assert updated.frequency_interval is None
+    assert updated.starts_on == date(2026, 12, 1)
+    assert updated.ends_on == date(2026, 12, 20)

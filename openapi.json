@@ -256,9 +256,16 @@
             "type": "string"
           },
           "category_id": {
-            "exclusiveMinimum": 0.0,
-            "title": "Category Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
           },
           "currency_code": {
             "maxLength": 10,
@@ -266,15 +273,42 @@
             "title": "Currency Code",
             "type": "string"
           },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "period": {
-            "$ref": "#/components/schemas/BudgetPeriod"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetScheduleInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "category_id",
           "amount",
-          "currency_code",
-          "period"
+          "currency_code"
         ],
         "title": "BudgetCreateRequest",
         "type": "object"
@@ -401,6 +435,10 @@
             "title": "Is Active",
             "type": "boolean"
           },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
           "progress_percent": {
             "title": "Progress Percent",
             "type": "string"
@@ -429,6 +467,7 @@
         },
         "required": [
           "id",
+          "name",
           "category",
           "currency",
           "amount",
@@ -449,6 +488,60 @@
         "title": "BudgetResponse",
         "type": "object"
       },
+      "BudgetScheduleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "ends_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends On"
+          },
+          "frequency_interval": {
+            "anyOf": [
+              {
+                "maximum": 999.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frequency Interval"
+          },
+          "frequency_unit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrequencyUnit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule_type": {
+            "$ref": "#/components/schemas/ScheduleType"
+          },
+          "starts_on": {
+            "format": "date",
+            "title": "Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schedule_type",
+          "starts_on"
+        ],
+        "title": "BudgetScheduleInput",
+        "type": "object"
+      },
       "BudgetUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -461,9 +554,16 @@
             "type": "string"
           },
           "category_id": {
-            "exclusiveMinimum": 0.0,
-            "title": "Category Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
           },
           "currency_code": {
             "maxLength": 10,
@@ -471,9 +571,25 @@
             "title": "Currency Code",
             "type": "string"
           },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "period": {
             "$ref": "#/components/schemas/BudgetPeriod",
             "title": "Period"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/BudgetScheduleInput",
+            "title": "Schedule"
           }
         },
         "title": "BudgetUpdateRequest",

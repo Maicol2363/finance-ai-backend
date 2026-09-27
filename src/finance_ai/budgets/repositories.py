@@ -59,14 +59,15 @@ class BudgetRepository(Protocol):
         self,
         *,
         owner_id: int,
-        category_id: int,
+        category_id: int | None,
         currency_id: int,
         name: str,
         amount: Decimal,
         schedule_type: ScheduleType,
-        frequency_unit: FrequencyUnit,
-        frequency_interval: int,
+        frequency_unit: FrequencyUnit | None,
+        frequency_interval: int | None,
         starts_on: date,
+        ends_on: date | None,
     ) -> int: ...
 
     def update(
@@ -74,12 +75,16 @@ class BudgetRepository(Protocol):
         *,
         owner_id: int,
         budget_id: int,
+        category_changed: bool,
         category_id: int | None,
         currency_id: int | None,
         name: str | None,
         amount: Decimal | None,
+        schedule_type: ScheduleType | None,
         frequency_unit: FrequencyUnit | None,
+        frequency_interval: int | None,
         starts_on: date | None,
+        ends_on: date | None,
     ) -> None: ...
 
     def delete(self, *, owner_id: int, budget_id: int) -> None: ...

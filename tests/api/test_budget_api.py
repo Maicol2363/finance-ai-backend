@@ -27,6 +27,7 @@ CATEGORY = BudgetCategoryView(4, "Food", "orange", "food")
 def budget_view() -> BudgetView:
     return BudgetView(
         id=9,
+        name="Food plan",
         category=CATEGORY,
         currency=COP,
         amount=Decimal("200.00"),
@@ -155,6 +156,78 @@ def test_empty_or_null_patch_is_rejected(
 
     assert client.patch("/api/v1/budgets/9", json={}).status_code == 422
     assert client.patch("/api/v1/budgets/9", json={"amount": None}).status_code == 422
+    assert service.calls == []
+
+
+def test_advanced_schedule_and_all_expenses_scope_reach_service(
+    budget_client: tuple[TestClient, StubBudgetService],
+) -> None:
+    client, service = budget_client
+
+    response = client.post(
+        "/api/v1/budgets",
+        json={
+            "category_id": None,
+            "name": "Trip",
+            "amount": "900.00",
+            "currency_code": "USD",
+            "schedule": {
+                "schedule_type": "one_time",
+                "frequency_unit": None,
+                "frequency_interval": None,
+                "starts_on": "2026-12-01",
+                "ends_on": "2026-12-20",
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    _, (_, command) = service.calls[0]
+    assert isinstance(command, BudgetCreateCommand)
+    assert command.category_id is None
+    assert command.name == "Trip"
+    assert command.schedule is not None
+    assert command.schedule.schedule_type is ScheduleType.ONE_TIME
+    assert command.schedule.ends_on == date(2026, 12, 20)
+
+
+@pytest.mark.parametrize(
+    "schedule",
+    [
+        {
+            "schedule_type": "recurring",
+            "frequency_unit": "week",
+            "starts_on": "2026-09-01",
+        },
+        {
+            "schedule_type": "one_time",
+            "frequency_unit": "week",
+            "frequency_interval": 1,
+            "starts_on": "2026-09-01",
+        },
+        {
+            "schedule_type": "one_time",
+            "starts_on": "2026-09-20",
+            "ends_on": "2026-09-01",
+        },
+    ],
+)
+def test_invalid_advanced_schedule_is_rejected(
+    budget_client: tuple[TestClient, StubBudgetService],
+    schedule: dict[str, object],
+) -> None:
+    client, service = budget_client
+
+    response = client.post(
+        "/api/v1/budgets",
+        json={
+            "amount": "20.00",
+            "currency_code": "COP",
+            "schedule": schedule,
+        },
+    )
+
+    assert response.status_code == 422
     assert service.calls == []
 
 

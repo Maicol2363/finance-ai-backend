@@ -61,14 +61,15 @@ class SQLAlchemyBudgetRepository:
         self,
         *,
         owner_id: int,
-        category_id: int,
+        category_id: int | None,
         currency_id: int,
         name: str,
         amount: Decimal,
         schedule_type: ScheduleType,
-        frequency_unit: FrequencyUnit,
-        frequency_interval: int,
+        frequency_unit: FrequencyUnit | None,
+        frequency_interval: int | None,
         starts_on: date,
+        ends_on: date | None,
     ) -> int:
         item = Budget(
             user_id=owner_id,
@@ -77,10 +78,10 @@ class SQLAlchemyBudgetRepository:
             name=name,
             amount=amount,
             schedule_type=schedule_type.value,
-            frequency_unit=frequency_unit.value,
+            frequency_unit=None if frequency_unit is None else frequency_unit.value,
             frequency_interval=frequency_interval,
             starts_on=starts_on,
-            ends_on=None,
+            ends_on=ends_on,
             is_active=True,
         )
         self.session.add(item)
@@ -92,15 +93,19 @@ class SQLAlchemyBudgetRepository:
         *,
         owner_id: int,
         budget_id: int,
+        category_changed: bool,
         category_id: int | None,
         currency_id: int | None,
         name: str | None,
         amount: Decimal | None,
+        schedule_type: ScheduleType | None,
         frequency_unit: FrequencyUnit | None,
+        frequency_interval: int | None,
         starts_on: date | None,
+        ends_on: date | None,
     ) -> None:
         values: dict[str, object] = {"updated_at": func.now()}
-        if category_id is not None:
+        if category_changed:
             values["category_id"] = category_id
         if currency_id is not None:
             values["currency_id"] = currency_id
@@ -108,13 +113,13 @@ class SQLAlchemyBudgetRepository:
             values["name"] = name
         if amount is not None:
             values["amount"] = amount
-        if frequency_unit is not None:
+        if schedule_type is not None:
             values.update(
-                schedule_type=ScheduleType.RECURRING.value,
-                frequency_unit=frequency_unit.value,
-                frequency_interval=1,
+                schedule_type=schedule_type.value,
+                frequency_unit=None if frequency_unit is None else frequency_unit.value,
+                frequency_interval=frequency_interval,
                 starts_on=starts_on,
-                ends_on=None,
+                ends_on=ends_on,
             )
         self.session.execute(
             update(Budget)

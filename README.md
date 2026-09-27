@@ -51,6 +51,12 @@ Only `confirmed` expenses can be edited or deleted. An update recalculates the r
 
 The service never trusts an identifier by itself: every read and mutation scopes the expense, receipt, transaction, movement, account, and category checks to the authenticated owner. `0009_hu008_hu011_expense_history` adds the financial linkage and editable fields; `0010_expense_audit_index` adds audit timestamps and repairs the category/date index for databases that already reached `0009`.
 
+## Budgets (HG-016)
+
+Authenticated users can create multiple concurrent budgets for one owned category or all expenses. Each budget has an optional custom name, exact currency, amount, and either a recurring schedule or a one-time date range. Recurring schedules support every 1–999 days, weeks, months, or years; weekly and monthly remain backward-compatible simple presets.
+
+Budget progress is derived on read from confirmed expense transactions. Only expenses inside the resolved occurrence and in the budget's exact currency contribute; no implicit currency conversion or separately maintained progress total is used. Category ownership is enforced at both the service and database constraint layers, and deleting a category cascades only its linked budgets.
+
 ## Unified history (HU-011)
 
 `GET /api/v1/history` returns owned `expense`, `income`, and `transfer` transactions ordered by `occurred_at DESC, id DESC`. It supports `search`, `type`, `category_id`, `account_id`, `period=weekly|monthly|custom`, `start_date`, `end_date`, `page`, and `page_size`. Custom ranges are inclusive by date, and each movement includes the account's currency metadata and signed amount. History reads existing income and transfer transactions; their public creation flows belong to later stories.

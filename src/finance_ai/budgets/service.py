@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from finance_ai.budgets.periods import (
+    BudgetPeriod,
     PeriodRange,
     ScheduleType,
     default_start,
@@ -17,6 +18,7 @@ from finance_ai.budgets.schemas import (
     BudgetCategoryView,
     BudgetCreateCommand,
     BudgetListResult,
+    BudgetScheduleCommand,
     BudgetUpdateCommand,
     BudgetView,
 )
@@ -47,28 +49,35 @@ class BudgetService:
     def create(self, *, owner_id: int, command: BudgetCreateCommand) -> BudgetView:
         amount = self.policy.validate_amount(command.amount)
         currency_code = self.policy.normalize_currency_code(command.currency_code)
-        period = self.policy.validate_period(command.period)
         today = self.today_factory()
+        schedule = self._schedule(period=command.period, schedule=command.schedule, today=today)
 
         with self.uow_factory() as uow:
-            category = uow.budgets.find_category_owned(
-                owner_id=owner_id, category_id=command.category_id
-            )
-            if category is None:
-                raise BudgetCategoryUnavailableError
+            category = None
+            if command.category_id is not None:
+                category = uow.budgets.find_category_owned(
+                    owner_id=owner_id, category_id=command.category_id
+                )
+                if category is None:
+                    raise BudgetCategoryUnavailableError
             currency = uow.currencies.find_active_by_code(currency_code)
             if currency is None:
                 raise BudgetCurrencyInvalidError
+            name = self.policy.normalize_name(
+                command.name,
+                fallback=self._default_name(category),
+            )
             budget_id = uow.budgets.add(
                 owner_id=owner_id,
-                category_id=category.id,
+                category_id=None if category is None else category.id,
                 currency_id=currency.id,
-                name=category.name,
+                name=name,
                 amount=amount,
-                schedule_type=ScheduleType.RECURRING,
-                frequency_unit=period_frequency(period),
-                frequency_interval=1,
-                starts_on=default_start(period, today),
+                schedule_type=schedule.schedule_type,
+                frequency_unit=schedule.frequency_unit,
+                frequency_interval=schedule.frequency_interval,
+                starts_on=schedule.starts_on,
+                ends_on=schedule.ends_on,
             )
             uow.flush()
             created = self._require_owned(uow, owner_id=owner_id, budget_id=budget_id)
@@ -104,7 +113,11 @@ class BudgetService:
     def update(self, *, owner_id: int, budget_id: int, command: BudgetUpdateCommand) -> BudgetView:
         today = self.today_factory()
         amount = None if command.amount is None else self.policy.validate_amount(command.amount)
-        period = None if command.period is None else self.policy.validate_period(command.period)
+        schedule = (
+            None
+            if command.period is None and command.schedule is None
+            else self._schedule(period=command.period, schedule=command.schedule, today=today)
+        )
         currency_code = (
             None
             if command.currency_code is None
@@ -112,39 +125,52 @@ class BudgetService:
         )
 
         with self.uow_factory() as uow:
-            self._require_owned(
+            current = self._require_owned(
                 uow,
                 owner_id=owner_id,
                 budget_id=budget_id,
                 for_update=True,
             )
-            category_id: int | None = None
+            category = current.category
+            category_id: int | None = current.category.id if current.category is not None else None
             name: str | None = None
-            if command.category_id is not None:
-                category = uow.budgets.find_category_owned(
-                    owner_id=owner_id, category_id=command.category_id
+            category_changed = command.category_changed or command.category_id is not None
+            if category_changed:
+                category = None
+                category_id = command.category_id
+                if category_id is not None:
+                    category = uow.budgets.find_category_owned(
+                        owner_id=owner_id, category_id=category_id
+                    )
+                    if category is None:
+                        raise BudgetCategoryUnavailableError
+                old_default = self._default_name(current.category)
+                if not command.name_changed and current.name == old_default:
+                    name = self._default_name(category)
+            if command.name_changed:
+                name = self.policy.normalize_name(
+                    command.name,
+                    fallback=self._default_name(category),
                 )
-                if category is None:
-                    raise BudgetCategoryUnavailableError
-                category_id = category.id
-                name = category.name
             currency_id: int | None = None
             if currency_code is not None:
                 currency = uow.currencies.find_active_by_code(currency_code)
                 if currency is None:
                     raise BudgetCurrencyInvalidError
                 currency_id = currency.id
-            frequency_unit = None if period is None else period_frequency(period)
-            starts_on = None if period is None else default_start(period, today)
             uow.budgets.update(
                 owner_id=owner_id,
                 budget_id=budget_id,
+                category_changed=category_changed,
                 category_id=category_id,
                 currency_id=currency_id,
                 name=name,
                 amount=amount,
-                frequency_unit=frequency_unit,
-                starts_on=starts_on,
+                schedule_type=None if schedule is None else schedule.schedule_type,
+                frequency_unit=None if schedule is None else schedule.frequency_unit,
+                frequency_interval=None if schedule is None else schedule.frequency_interval,
+                starts_on=None if schedule is None else schedule.starts_on,
+                ends_on=None if schedule is None else schedule.ends_on,
             )
             uow.flush()
             updated = self._require_owned(uow, owner_id=owner_id, budget_id=budget_id)
@@ -227,6 +253,7 @@ class BudgetService:
         )
         return BudgetView(
             id=record.id,
+            name=record.name,
             category=(None if record.category is None else cls._category_view(record.category)),
             currency=record.currency,
             amount=record.amount,
@@ -251,3 +278,27 @@ class BudgetService:
             color=record.color,
             icon=record.icon,
         )
+
+    def _schedule(
+        self,
+        *,
+        period: BudgetPeriod | None,
+        schedule: BudgetScheduleCommand | None,
+        today: date,
+    ) -> BudgetScheduleCommand:
+        if schedule is not None:
+            return self.policy.validate_schedule(schedule)
+        if period is None:
+            raise ValueError("A budget schedule is required")
+        validated_period = self.policy.validate_period(period)
+        return BudgetScheduleCommand(
+            schedule_type=ScheduleType.RECURRING,
+            frequency_unit=period_frequency(validated_period),
+            frequency_interval=1,
+            starts_on=default_start(validated_period, today),
+            ends_on=None,
+        )
+
+    @staticmethod
+    def _default_name(category: BudgetCategoryRecord | None) -> str:
+        return "All expenses" if category is None else category.name
