@@ -920,23 +920,6 @@
         "title": "CurrencyResponse",
         "type": "object"
       },
-      "DianBypassRequest": {
-        "additionalProperties": false,
-        "description": "Request payload for DIAN CUFE resolution.",
-        "properties": {
-          "cufe": {
-            "maxLength": 128,
-            "minLength": 64,
-            "title": "Cufe",
-            "type": "string"
-          }
-        },
-        "required": [
-          "cufe"
-        ],
-        "title": "DianBypassRequest",
-        "type": "object"
-      },
       "ExpenseCreateRequest": {
         "additionalProperties": false,
         "description": "Fields required to capture a manual expense (HU-006).",
@@ -7060,55 +7043,6 @@
         "summary": "Update Income",
         "tags": [
           "Incomes"
-        ]
-      }
-    },
-    "/api/v1/receipts/dian-bypass": {
-      "post": {
-        "description": "Resolves certified Colombian electronic invoice via DIAN in < 300ms ($0.00 AI cost).",
-        "operationId": "resolve_dian_cufe_api_v1_receipts_dian_bypass_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DianBypassRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Resolve Dian Cufe Api V1 Receipts Dian Bypass Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Tier-0 Fast Path: DIAN electronic invoice resolution via CUFE",
-        "tags": [
-          "Receipt Intelligence"
         ]
       }
     },

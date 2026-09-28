@@ -12,31 +12,11 @@ from finance_ai.receipts.dependencies import get_current_user_id
 from finance_ai.receipts.schemas import ReceiptExtraction, ReceiptItem
 
 
-def test_dian_bypass_endpoint_requires_auth() -> None:
-    app = create_app()
-    client = TestClient(app)
-    resp = client.post("/api/v1/receipts/dian-bypass", json={"cufe": "short-hash"})
-    assert resp.status_code == 401
-
-
 def test_scan_endpoint_requires_auth() -> None:
     app = create_app()
     client = TestClient(app)
     resp = client.post("/api/v1/receipts/scan")
     assert resp.status_code == 401
-
-
-def test_dian_bypass_endpoint_invalid_cufe() -> None:
-    """Tests /api/v1/receipts/dian-bypass with invalid CUFE format."""
-    app = create_app()
-    app.dependency_overrides[get_current_user_id] = lambda: 1
-    client = TestClient(app)
-
-    resp = client.post(
-        "/api/v1/receipts/dian-bypass",
-        json={"cufe": "short-hash"},
-    )
-    assert resp.status_code == 422  # Pydantic validation error (min length 64)
 
 
 def test_scan_endpoint_mocked_deepseek() -> None:

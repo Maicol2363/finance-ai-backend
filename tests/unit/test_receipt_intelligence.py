@@ -5,7 +5,6 @@ from decimal import Decimal
 
 from PIL import Image
 
-from finance_ai.receipts.dian_resolver import DianResolverService
 from finance_ai.receipts.preprocessor import preprocess_receipt_image
 from finance_ai.receipts.schemas import ReceiptExtraction, ReceiptItem
 
@@ -69,13 +68,3 @@ def test_fiscal_reconciliation_detects_discrepancy() -> None:
     )
     assert extraction.is_reconciled is False
     assert "differs from printed total" in (extraction.reconciliation_notes or "")
-
-
-def test_dian_cufe_validation() -> None:
-    """Verifies that non-64-hex strings are rejected immediately without network calls."""
-    resolver = DianResolverService()
-    import asyncio
-
-    res, _lat, msg = asyncio.run(resolver.resolve_cufe("not-a-valid-cufe"))
-    assert res is None
-    assert msg == "INVALID_CUFE_FORMAT"

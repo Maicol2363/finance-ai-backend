@@ -352,14 +352,6 @@ class ImageOptimizationMeta(BaseModel):
     tile_count: int
 
 
-class DianBypassRequest(BaseModel):
-    """Request payload for DIAN CUFE resolution."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    cufe: str = Field(min_length=64, max_length=128)
-
-
 class ReceiptScanResponse(BaseModel):
     """Response payload for synchronous receipt scan endpoint."""
 

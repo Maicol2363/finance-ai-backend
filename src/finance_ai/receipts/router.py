@@ -26,7 +26,6 @@ from finance_ai.expenses.schemas import ExpenseResponse
 from finance_ai.expenses.service import ExpenseService
 from finance_ai.receipts.deepseek_client import DeepSeekVisionService
 from finance_ai.receipts.dependencies import get_current_user_id
-from finance_ai.receipts.dian_resolver import DianResolverService
 from finance_ai.receipts.gateway import ReceiptVisionGateway, get_vision_gateway
 from finance_ai.receipts.guards import (
     get_receipt_rate_limiter,
@@ -40,7 +39,6 @@ from finance_ai.receipts.preprocessor import (
 from finance_ai.receipts.repository import ReceiptProposalRepository
 from finance_ai.receipts.sanitizer import create_fallback_proposal, sanitize_extraction
 from finance_ai.receipts.schemas import (
-    DianBypassRequest,
     ReceiptProposalConfirmRequest,
     ReceiptProposalResponse,
     ReceiptScanResponse,
@@ -433,31 +431,3 @@ async def scan_receipt(
         provider="deepseek",
         model=settings.deepseek_model,
     )
-
-
-@router.post(
-    "/dian-bypass",
-    status_code=status.HTTP_200_OK,
-    summary="Tier-0 Fast Path: DIAN electronic invoice resolution via CUFE",
-)
-async def resolve_dian_cufe(
-    request: DianBypassRequest,
-    user_id: Annotated[int, Depends(get_current_user_id)],
-) -> dict[str, Any]:
-    """Resolves certified Colombian electronic invoice via DIAN in < 300ms ($0.00 AI cost)."""
-    dian_service = DianResolverService()
-    extraction, latency_ms, status_msg = await dian_service.resolve_cufe(request.cufe)
-
-    if not extraction:
-        return {
-            "status": "FALLBACK_TO_VISION",
-            "reason": status_msg,
-            "latency_ms": latency_ms,
-        }
-
-    return {
-        "status": "SUCCESS",
-        "extraction": extraction.model_dump(mode="json"),
-        "latency_ms": latency_ms,
-        "provider": "dian_gov_co",
-    }
