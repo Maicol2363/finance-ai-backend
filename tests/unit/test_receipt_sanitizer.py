@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -110,3 +111,11 @@ def test_fallback_proposal_structure() -> None:
     assert proposal.total_amount is None
     assert len(proposal.issues) == 1
     assert proposal.issues[0].code == "PROVIDER_UNAVAILABLE"
+
+
+def test_fallback_proposal_keeps_full_manual_completion_window() -> None:
+    """Manual completion after a provider outage must not race a shorter expiry clock."""
+    proposal = create_fallback_proposal(uuid4())
+
+    window = proposal.expires_at - proposal.created_at
+    assert window == timedelta(hours=24)

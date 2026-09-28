@@ -22,6 +22,7 @@ from finance_ai.expenses.repositories import (
 )
 from finance_ai.expenses.service import ExpenseService
 from finance_ai.receipts.models import ReceiptProposalModel
+from finance_ai.receipts.sanitizer import create_fallback_proposal
 from finance_ai.receipts.schemas import (
     ConfirmedReceiptItem,
     ReceiptProposalConfirmRequest,
@@ -444,6 +445,79 @@ def test_confirm_proposal_not_a_receipt_rejected(
         service.confirm_receipt_proposal(owner_id=100, proposal_id=proposal_id, command=cmd)
     assert exc_info.value.field_errors is not None
     assert "not a receipt" in str(exc_info.value.field_errors["proposal"][0])
+
+
+def test_confirm_proposal_with_failed_extraction_succeeds(
+    service_setup: tuple[ExpenseService, dict[UUID, ReceiptProposalModel], FakeExpenseRepository],
+) -> None:
+    """Provider outages are recoverable: the user completes the fields by hand and confirms."""
+    service, proposals_map, fake_expenses = service_setup
+    proposal_id = uuid4()
+    proposals_map[proposal_id] = ReceiptProposalModel(
+        id=proposal_id,
+        user_id=100,
+        status="failed_extraction",
+        proposal_data={"merchant_name": None, "total_amount": None},
+        revision=1,
+        created_at=NOW,
+        expires_at=NOW + timedelta(hours=24),
+    )
+
+    cmd = ReceiptProposalConfirmRequest(
+        account_id=1,
+        total_amount=Decimal("32000.00"),
+        merchant="Panadería El Trigal",
+        occurred_at=NOW,
+        currency="COP",
+    )
+
+    record, is_new = service.confirm_receipt_proposal(
+        owner_id=100, proposal_id=proposal_id, command=cmd
+    )
+
+    assert is_new is True
+    assert record.amount == Decimal("32000.00")
+    assert record.store == "Panadería El Trigal"
+    assert fake_expenses.created_calls[0]["merchant"] == "Panadería El Trigal"
+    assert proposals_map[proposal_id].status == "confirmed"
+
+
+def test_confirm_proposal_from_provider_outage_fallback_succeeds(
+    service_setup: tuple[ExpenseService, dict[UUID, ReceiptProposalModel], FakeExpenseRepository],
+) -> None:
+    """Regression: the sanitizer's outage fallback must not be a confirmation dead end.
+
+    The proposal here is produced by the real fallback factory, so a future change to that
+    status value or to the confirmable set fails this test instead of reaching production.
+    """
+    service, proposals_map, fake_expenses = service_setup
+    fallback = create_fallback_proposal()
+    proposals_map[fallback.proposal_id] = ReceiptProposalModel(
+        id=fallback.proposal_id,
+        user_id=100,
+        status=fallback.status,
+        proposal_data=fallback.model_dump(mode="json"),
+        revision=fallback.revision,
+        created_at=fallback.created_at,
+        expires_at=fallback.expires_at,
+    )
+
+    cmd = ReceiptProposalConfirmRequest(
+        account_id=1,
+        total_amount=Decimal("12800.00"),
+        merchant="Tienda Manual",
+        occurred_at=NOW,
+        currency="COP",
+    )
+
+    record, is_new = service.confirm_receipt_proposal(
+        owner_id=100, proposal_id=fallback.proposal_id, command=cmd
+    )
+
+    assert is_new is True
+    assert record.amount == Decimal("12800.00")
+    assert proposals_map[fallback.proposal_id].status == "confirmed"
+    assert len(fake_expenses.created_calls) == 1
 
 
 def test_confirm_proposal_currency_mismatch_rejected(

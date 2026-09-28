@@ -210,7 +210,9 @@ def create_fallback_proposal(
     """Generates an editable fallback proposal when upstream AI providers fail or timeout."""
     pid = proposal_id or uuid4()
     now = datetime.now(UTC)
-    expires_at = now + timedelta(hours=1)
+    # Same 24h window as a normal draft: filling the required fields by hand after a provider
+    # outage must not race the clock.
+    expires_at = now + timedelta(hours=24)
     msg = error_message or (
         "No se pudo extraer la información automáticamente. Puedes ingresar los datos manualmente."
     )

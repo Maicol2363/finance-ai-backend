@@ -30,6 +30,10 @@ from finance_ai.receipts.schemas import ReceiptProposalConfirmRequest
 ExpenseUnitOfWorkFactory = Callable[[], ExpenseUnitOfWork]
 # receipt.total and expense.amount are NUMERIC(12, 2) in the persisted schema.
 MONEY_MAX = Decimal("9999999999.99")
+# Proposal states a client may confirm. `failed_extraction` drafts are recoverable: when every
+# provider attempt fails the user completes the required fields by hand (HU-015 provider-failure
+# recovery), so the confirmation payload - not the extraction - is the source of truth.
+CONFIRMABLE_PROPOSAL_STATUSES = frozenset({"complete", "partial", "failed_extraction"})
 
 
 class ExpenseService:
@@ -123,7 +127,7 @@ class ExpenseService:
                         ]
                     }
                 )
-            if proposal.status not in ("complete", "partial"):
+            if proposal.status not in CONFIRMABLE_PROPOSAL_STATUSES:
                 raise RequestInvalidError(
                     {"proposal": [f"Cannot confirm proposal with status '{proposal.status}'."]}
                 )
