@@ -5,8 +5,11 @@ from typing import Self
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from finance_ai.categories.repositories import CategoryRepository
+from finance_ai.db.repositories.categories import SQLAlchemyCategoryRepository
 from finance_ai.db.repositories.expenses import SQLAlchemyExpenseRepository
 from finance_ai.expenses.repositories import ExpenseRepository
+from finance_ai.receipts.repository import ReceiptProposalRepository
 
 
 class SQLAlchemyExpenseUnitOfWork:
@@ -14,11 +17,15 @@ class SQLAlchemyExpenseUnitOfWork:
         self.session_factory = session_factory
         self.session: Session | None = None
         self.expenses: ExpenseRepository
+        self.proposals: ReceiptProposalRepository
+        self.categories: CategoryRepository
         self._committed = False
 
     def __enter__(self) -> Self:
         self.session = self.session_factory()
         self.expenses = SQLAlchemyExpenseRepository(self.session)
+        self.proposals = ReceiptProposalRepository(self.session)
+        self.categories = SQLAlchemyCategoryRepository(self.session)
         return self
 
     def __exit__(

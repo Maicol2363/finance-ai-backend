@@ -215,6 +215,53 @@
         "title": "AuthenticatedUserResponse",
         "type": "object"
       },
+      "Body_create_receipt_proposal_api_v1_receipts_proposal_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_receipt_proposal_api_v1_receipts_proposal_post",
+        "type": "object"
+      },
+      "Body_retry_receipt_proposal_api_v1_receipts_proposal__proposal_id__retry_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "rotation_degrees": {
+            "default": 0,
+            "title": "Rotation Degrees",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_retry_receipt_proposal_api_v1_receipts_proposal__proposal_id__retry_post",
+        "type": "object"
+      },
+      "Body_scan_receipt_api_v1_receipts_scan_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_scan_receipt_api_v1_receipts_scan_post",
+        "type": "object"
+      },
       "CategoryColor": {
         "enum": [
           "blue",
@@ -345,6 +392,94 @@
         "title": "CategoryUpdateRequest",
         "type": "object"
       },
+      "ConfirmedReceiptItem": {
+        "additionalProperties": false,
+        "description": "User-confirmed line item for multi-item persistence in PostgreSQL.",
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 999999.999,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "1.0",
+            "title": "Quantity"
+          },
+          "total_price": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 9999999999.99,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Total Price"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "name",
+          "total_price"
+        ],
+        "title": "ConfirmedReceiptItem",
+        "type": "object"
+      },
       "CreateIncomeSourceRequest": {
         "additionalProperties": false,
         "properties": {
@@ -386,6 +521,23 @@
           "decimals"
         ],
         "title": "CurrencyResponse",
+        "type": "object"
+      },
+      "DianBypassRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for DIAN CUFE resolution.",
+        "properties": {
+          "cufe": {
+            "maxLength": 128,
+            "minLength": 64,
+            "title": "Cufe",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cufe"
+        ],
+        "title": "DianBypassRequest",
         "type": "object"
       },
       "ExpenseCreateRequest": {
@@ -799,6 +951,19 @@
         "title": "ExpenseUpdateRequest",
         "type": "object"
       },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HistoryExpenseItemResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1108,6 +1273,51 @@
           "has_next"
         ],
         "title": "HistoryResponse",
+        "type": "object"
+      },
+      "ImageOptimizationMeta": {
+        "additionalProperties": false,
+        "description": "Image processing and tile compression performance metadata.",
+        "properties": {
+          "compressed_bytes": {
+            "title": "Compressed Bytes",
+            "type": "integer"
+          },
+          "compression_time_ms": {
+            "title": "Compression Time Ms",
+            "type": "number"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "original_bytes": {
+            "title": "Original Bytes",
+            "type": "integer"
+          },
+          "savings_percent": {
+            "title": "Savings Percent",
+            "type": "number"
+          },
+          "tile_count": {
+            "title": "Tile Count",
+            "type": "integer"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "original_bytes",
+          "compressed_bytes",
+          "savings_percent",
+          "compression_time_ms",
+          "width",
+          "height",
+          "tile_count"
+        ],
+        "title": "ImageOptimizationMeta",
         "type": "object"
       },
       "IncomeListResponse": {
@@ -1442,6 +1652,468 @@
         "title": "ProblemResponse",
         "type": "object"
       },
+      "ReceiptExtraction": {
+        "additionalProperties": false,
+        "description": "Structured receipt extraction output with strict bounds and validation.",
+        "properties": {
+          "currency": {
+            "default": "COP",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "is_receipt": {
+            "default": true,
+            "title": "Is Receipt",
+            "type": "boolean"
+          },
+          "is_reconciled": {
+            "default": false,
+            "title": "Is Reconciled",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReceiptItem"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "merchant": {
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Merchant",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO Date string YYYY-MM-DD",
+            "title": "Occurred At"
+          },
+          "payment_method": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Method"
+          },
+          "printed_total": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printed Total"
+          },
+          "reconciliation_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Notes"
+          },
+          "suggested_category": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Category"
+          },
+          "taxes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReceiptTaxes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tip": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tip"
+          }
+        },
+        "required": [
+          "merchant"
+        ],
+        "title": "ReceiptExtraction",
+        "type": "object"
+      },
+      "ReceiptItem": {
+        "additionalProperties": false,
+        "description": "Line item candidate extracted from a receipt.",
+        "properties": {
+          "amount": {
+            "default": "0.00",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity": {
+            "default": "1.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ReceiptItem",
+        "type": "object"
+      },
+      "ReceiptProposalConfirmRequest": {
+        "additionalProperties": false,
+        "description": "Payload to confirm an ephemeral receipt proposal into permanent financial records.",
+        "properties": {
+          "account_id": {
+            "minimum": 1.0,
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConfirmedReceiptItem"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "merchant": {
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Merchant",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "total_amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 9999999999.99,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Total Amount"
+          }
+        },
+        "required": [
+          "account_id",
+          "total_amount",
+          "merchant",
+          "occurred_at",
+          "currency"
+        ],
+        "title": "ReceiptProposalConfirmRequest",
+        "type": "object"
+      },
+      "ReceiptProposalResponse": {
+        "additionalProperties": false,
+        "description": "Client-facing proposal response containing parsed candidates and issue hints.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "default": "COP",
+            "title": "Currency",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReceiptItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "merchant_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merchant Name"
+          },
+          "payment_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Method"
+          },
+          "proposal_id": {
+            "format": "uuid",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "purchase_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Date"
+          },
+          "revision": {
+            "default": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "partial",
+              "not_a_receipt",
+              "failed_extraction",
+              "confirmed",
+              "discarded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggested_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Category"
+          },
+          "total_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Amount"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "status",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "ReceiptProposalResponse",
+        "type": "object"
+      },
+      "ReceiptScanResponse": {
+        "additionalProperties": false,
+        "description": "Response payload for synchronous receipt scan endpoint.",
+        "properties": {
+          "ai_latency_ms": {
+            "title": "Ai Latency Ms",
+            "type": "number"
+          },
+          "extraction": {
+            "$ref": "#/components/schemas/ReceiptExtraction"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "optimization": {
+            "$ref": "#/components/schemas/ImageOptimizationMeta"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "total_latency_ms": {
+            "title": "Total Latency Ms",
+            "type": "number"
+          }
+        },
+        "required": [
+          "extraction",
+          "optimization",
+          "ai_latency_ms",
+          "total_latency_ms",
+          "provider",
+          "model"
+        ],
+        "title": "ReceiptScanResponse",
+        "type": "object"
+      },
+      "ReceiptTaxes": {
+        "additionalProperties": false,
+        "description": "Fiscal taxes breakdown.",
+        "properties": {
+          "inc_8": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inc 8"
+          },
+          "iva_19": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iva 19"
+          },
+          "iva_5": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iva 5"
+          },
+          "total_tax": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tax"
+          }
+        },
+        "title": "ReceiptTaxes",
+        "type": "object"
+      },
       "RegisterRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1558,6 +2230,78 @@
         ],
         "title": "TransactionType",
         "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "ValidationIssue": {
+        "additionalProperties": false,
+        "description": "Validation or sanitization finding on a proposal.",
+        "properties": {
+          "code": {
+            "maxLength": 64,
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 255,
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "default": "warning",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ValidationIssue",
+        "type": "object"
       },
       "finance_ai__categories__schemas__CategoryResponse": {
         "additionalProperties": false,
@@ -5257,6 +6001,355 @@
         "summary": "Update Income",
         "tags": [
           "Incomes"
+        ]
+      }
+    },
+    "/api/v1/receipts/dian-bypass": {
+      "post": {
+        "description": "Resolves certified Colombian electronic invoice via DIAN in < 300ms ($0.00 AI cost).",
+        "operationId": "resolve_dian_cufe_api_v1_receipts_dian_bypass_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DianBypassRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resolve Dian Cufe Api V1 Receipts Dian Bypass Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tier-0 Fast Path: DIAN electronic invoice resolution via CUFE",
+        "tags": [
+          "Receipt Intelligence"
+        ]
+      }
+    },
+    "/api/v1/receipts/proposal": {
+      "post": {
+        "description": "Processes uploaded receipt image strictly in-memory and creates a structured draft.",
+        "operationId": "create_receipt_proposal_api_v1_receipts_proposal_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_receipt_proposal_api_v1_receipts_proposal_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Upload receipt photo and generate fast draft proposal",
+        "tags": [
+          "Receipt Intelligence"
+        ]
+      }
+    },
+    "/api/v1/receipts/proposal/{proposal_id}": {
+      "delete": {
+        "description": "Marks a proposal draft as discarded.",
+        "operationId": "discard_receipt_proposal_api_v1_receipts_proposal__proposal_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Discard Receipt Proposal Api V1 Receipts Proposal  Proposal Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Discard receipt proposal draft",
+        "tags": [
+          "Receipt Intelligence"
+        ]
+      },
+      "get": {
+        "description": "Retrieves an existing proposal ensuring user ownership.",
+        "operationId": "get_receipt_proposal_api_v1_receipts_proposal__proposal_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Fetch existing receipt proposal draft",
+        "tags": [
+          "Receipt Intelligence"
+        ]
+      }
+    },
+    "/api/v1/receipts/proposal/{proposal_id}/confirm": {
+      "post": {
+        "description": "Validates proposal, checks account/currency, and executes atomic 5-table confirmation in PostgreSQL.",
+        "operationId": "confirm_receipt_proposal_api_v1_receipts_proposal__proposal_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptProposalConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Confirm receipt proposal into permanent financial records",
+        "tags": [
+          "Receipt Intelligence"
+        ]
+      }
+    },
+    "/api/v1/receipts/proposal/{proposal_id}/retry": {
+      "post": {
+        "description": "Re-analyzes receipt with updated rotation orientation without persistent cloud storage.",
+        "operationId": "retry_receipt_proposal_api_v1_receipts_proposal__proposal_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_retry_receipt_proposal_api_v1_receipts_proposal__proposal_id__retry_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Client-driven retry or rotation for a proposal",
+        "tags": [
+          "Receipt Intelligence"
+        ]
+      }
+    },
+    "/api/v1/receipts/scan": {
+      "post": {
+        "description": "Clamps to 768px tile boundary, compresses to JPEG Q75, and queries DeepSeek Vision.",
+        "operationId": "scan_receipt_api_v1_receipts_scan_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_scan_receipt_api_v1_receipts_scan_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptScanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Legacy high-speed receipt photo scan",
+        "tags": [
+          "Receipt Intelligence"
         ]
       }
     },

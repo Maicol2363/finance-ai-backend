@@ -213,6 +213,30 @@ class CategoryResponse(BaseModel):
         return None if category is None else cls(id=category.id, name=category.name)
 
 
+class ExpenseItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    name: str
+    amount: str
+    quantity: str
+    unit_price: str | None
+    note: str | None
+    category: CategoryResponse | None
+
+    @classmethod
+    def from_record(cls, item: ExpenseItemRecord) -> ExpenseItemResponse:
+        return cls(
+            id=item.id,
+            name=item.name,
+            amount=format_money(item.amount),
+            quantity=format(item.quantity, ".3f"),
+            unit_price=None if item.unit_price is None else format_money(item.unit_price),
+            note=item.note,
+            category=CategoryResponse.from_record(item.category),
+        )
+
+
 class ExpenseResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -241,6 +265,8 @@ class ExpenseResponse(BaseModel):
     updated_at: datetime
     receipt_image: str | None
     image_path: str | None
+    receipt_total: str | None = None
+    items: list[ExpenseItemResponse] = Field(default_factory=list)
 
     @classmethod
     def from_record(cls, item: ExpenseRecord) -> ExpenseResponse:
@@ -270,6 +296,10 @@ class ExpenseResponse(BaseModel):
             updated_at=item.updated_at,
             receipt_image=item.receipt_image,
             image_path=item.image_path,
+            receipt_total=format_money(item.receipt_total)
+            if item.receipt_total is not None
+            else None,
+            items=[ExpenseItemResponse.from_record(sub) for sub in item.items],
         )
 
 

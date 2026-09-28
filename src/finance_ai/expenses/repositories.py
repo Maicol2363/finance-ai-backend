@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from finance_ai.receipts.schemas import ConfirmedReceiptItem
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,8 @@ class ExpenseRecord:
     updated_at: datetime
     receipt_image: str | None = None
     image_path: str | None = None
+    receipt_total: Decimal | None = None
+    items: tuple[ExpenseItemRecord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -116,6 +122,10 @@ class ExpenseRepository(Protocol):
         self, *, owner_id: int, expense_id: int, for_update: bool = False
     ) -> ExpenseRecord | None: ...
 
+    def find_by_transaction_id(
+        self, *, owner_id: int, transaction_id: int
+    ) -> ExpenseRecord | None: ...
+
     def active_account_currency(
         self, *, owner_id: int, account_id: int
     ) -> CurrencyReference | None: ...
@@ -156,3 +166,25 @@ class ExpenseRepository(Protocol):
     def list_history(
         self, *, owner_id: int, filters: HistoryFilters
     ) -> tuple[list[HistoryRecord], int]: ...
+
+    def create_from_receipt_proposal(
+        self,
+        *,
+        owner_id: int,
+        account_id: int,
+        total_amount: Decimal,
+        merchant: str,
+        occurred_at: datetime,
+        category_id: int | None = None,
+        items: Sequence[ConfirmedReceiptItem] | None = None,
+        note: str | None = None,
+    ) -> ExpenseRecord: ...
+
+    def find_potential_duplicate(
+        self,
+        *,
+        owner_id: int,
+        merchant: str,
+        total_amount: Decimal,
+        occurred_date: date,
+    ) -> bool: ...

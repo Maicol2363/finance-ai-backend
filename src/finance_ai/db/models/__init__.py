@@ -14,6 +14,7 @@ from finance_ai.db.models.receipts import Expense, Receipt
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
 from finance_ai.db.models.transactions import AccountMovement, FinancialTransaction
+from finance_ai.receipts.models import ReceiptProposalModel
 
 __all__ = [
     "Account",
@@ -29,6 +30,7 @@ __all__ = [
     "Incomesource",
     "PaymentMethod",
     "Receipt",
+    "ReceiptProposalModel",
     "RenewableCredential",
     "Role",
     "SpendingLimit",

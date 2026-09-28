@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from collections.abc import Sequence
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from finance_ai.receipts.schemas import ConfirmedReceiptItem
 
 from sqlalchemy import Select, and_, delete, exists, func, or_, select, update
 from sqlalchemy.orm import Session, aliased
@@ -56,7 +61,20 @@ class SQLAlchemyExpenseRepository:
         if for_update:
             statement = statement.with_for_update(of=Expense)
         row = self.session.execute(statement).first()
-        return None if row is None else self._expense_record(row)
+        if row is None:
+            return None
+        record = self._expense_record(row)
+        return self._populate_receipt_items(owner_id=owner_id, record=record, receipt=row[1])
+
+    def find_by_transaction_id(self, *, owner_id: int, transaction_id: int) -> ExpenseRecord | None:
+        statement = self._expense_projection(owner_id).where(
+            FinancialTransaction.id == transaction_id
+        )
+        row = self.session.execute(statement).first()
+        if row is None:
+            return None
+        record = self._expense_record(row)
+        return self._populate_receipt_items(owner_id=owner_id, record=record, receipt=row[1])
 
     def active_account_currency(
         self, *, owner_id: int, account_id: int
@@ -167,6 +185,136 @@ class SQLAlchemyExpenseRepository:
         created = self.find_owned(owner_id=owner_id, expense_id=expense.id)
         assert created is not None
         return created
+
+    def create_from_receipt_proposal(
+        self,
+        *,
+        owner_id: int,
+        account_id: int,
+        total_amount: Decimal,
+        merchant: str,
+        occurred_at: datetime,
+        category_id: int | None = None,
+        items: Sequence[ConfirmedReceiptItem] | None = None,
+        note: str | None = None,
+    ) -> ExpenseRecord:
+        normalized = merchant.strip().lower()
+        store = self.session.execute(
+            select(Store).where(Store.user_id == owner_id, Store.normalized_name == normalized)
+        ).scalar_one_or_none()
+        if store is None:
+            store = Store(
+                user_id=owner_id,
+                name=merchant.strip(),
+                normalized_name=normalized,
+                is_active=True,
+            )
+            self.session.add(store)
+            self.session.flush()
+
+        account = self.session.execute(
+            select(Account).where(Account.id == account_id, Account.user_id == owner_id)
+        ).scalar_one()
+
+        transaction = FinancialTransaction(
+            user_id=owner_id,
+            transaction_type="expense",
+            status="confirmed",
+            occurred_at=occurred_at,
+            description=merchant.strip(),
+            capture_source="receipt_photo_ai",
+        )
+        self.session.add(transaction)
+        self.session.flush()
+
+        movement = AccountMovement(
+            user_id=owner_id,
+            transaction_id=transaction.id,
+            account_id=account_id,
+            amount=-total_amount,
+        )
+        self.session.add(movement)
+
+        receipt = Receipt(
+            user_id=owner_id,
+            transaction_id=transaction.id,
+            store_id=store.id,
+            store=merchant.strip(),
+            date=occurred_at.date(),
+            currency_id=account.currency_id,
+            category_id=category_id,
+            purchase_reason=note,
+            total=total_amount,
+            payment_method_id=1,
+            image=None,
+        )
+        self.session.add(receipt)
+        self.session.flush()
+
+        item_list = list(items) if items else []
+        if not item_list:
+            fallback = Expense(
+                user_id=owner_id,
+                receipt_id=receipt.id,
+                category_id=category_id,
+                position=1,
+                name=merchant.strip(),
+                quantity=Decimal("1"),
+                unit_price=total_amount,
+                amount=total_amount,
+                note=note,
+                item_reason=note,
+                image_path=None,
+            )
+            self.session.add(fallback)
+            self.session.flush()
+            primary_expense_id = fallback.id
+        else:
+            expense_entities: list[Expense] = []
+            for idx, item in enumerate(item_list, start=1):
+                exp = Expense(
+                    user_id=owner_id,
+                    receipt_id=receipt.id,
+                    category_id=item.category_id or category_id,
+                    position=idx,
+                    name=item.name.strip(),
+                    quantity=item.quantity if item.quantity is not None else Decimal("1"),
+                    unit_price=item.unit_price,
+                    amount=item.total_price,
+                    note=item.note,
+                    item_reason=item.note,
+                    image_path=None,
+                )
+                expense_entities.append(exp)
+            self.session.add_all(expense_entities)
+            self.session.flush()
+            primary_expense_id = expense_entities[0].id
+
+        created = self.find_owned(owner_id=owner_id, expense_id=primary_expense_id)
+        assert created is not None
+        return created
+
+    def find_potential_duplicate(
+        self,
+        *,
+        owner_id: int,
+        merchant: str,
+        total_amount: Decimal,
+        occurred_date: date,
+    ) -> bool:
+        normalized = merchant.strip().lower()
+        stmt = (
+            select(Receipt.id)
+            .join(Store, Store.id == Receipt.store_id)
+            .where(
+                Receipt.user_id == owner_id,
+                Receipt.date == occurred_date,
+                Receipt.total == total_amount,
+                Store.normalized_name == normalized,
+            )
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalar_one_or_none() is not None
 
     def update(
         self,
@@ -487,7 +635,33 @@ class SQLAlchemyExpenseRepository:
             updated_at=expense.updated_at,
             receipt_image=receipt.image,
             image_path=expense.image_path,
+            receipt_total=receipt.total if receipt is not None else None,
         )
+
+    def _populate_receipt_items(
+        self, *, owner_id: int, record: ExpenseRecord, receipt: Receipt | None
+    ) -> ExpenseRecord:
+        item_rows = self.session.execute(
+            select(Expense, Category)
+            .outerjoin(Category, Category.id == Expense.category_id)
+            .where(Expense.receipt_id == record.receipt_id, Expense.user_id == owner_id)
+            .order_by(Expense.position.asc(), Expense.id.asc())
+        ).all()
+        items = tuple(
+            ExpenseItemRecord(
+                id=exp.id,
+                name=exp.name,
+                amount=exp.amount,
+                quantity=exp.quantity,
+                unit_price=exp.unit_price,
+                note=exp.note or exp.item_reason,
+                category=None if cat is None else CategoryReference(cat.id, cat.name),
+                image_path=exp.image_path,
+            )
+            for exp, cat in item_rows
+        )
+        receipt_total = receipt.total if receipt is not None else record.receipt_total
+        return dataclasses.replace(record, items=items, receipt_total=receipt_total)
 
     def _currency(self, currency: Currency) -> CurrencyReference:
         return CurrencyReference(
