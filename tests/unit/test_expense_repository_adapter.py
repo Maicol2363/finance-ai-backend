@@ -6,15 +6,18 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from finance_ai.db.base import Base
 from finance_ai.db.models.accounts import Account
 from finance_ai.db.models.catalogs import Category
 from finance_ai.db.models.identity import AppUser
+from finance_ai.db.models.receipts import Expense
 from finance_ai.db.models.reference import Currency
+from finance_ai.db.models.transactions import AccountMovement
 from finance_ai.db.repositories.expenses import SQLAlchemyExpenseRepository
+from finance_ai.expenses.repositories import ExpenseItemInput
 from finance_ai.receipts.schemas import ConfirmedReceiptItem
 
 NOW = datetime(2026, 9, 28, 12, 0, 0, tzinfo=UTC)
@@ -143,3 +146,168 @@ def test_create_from_receipt_proposal_and_lookup(
             occurred_date=NOW.date(),
         )
         assert no_duplicate is False
+
+
+def _create_receipt_with_items(
+    repo: SQLAlchemyExpenseRepository,
+    session: Session,
+    *,
+    count: int = 2,
+) -> tuple[int, int]:
+    """Creates a receipt expense whose lines are `count` rows of 1000.00 each."""
+    items = [
+        ConfirmedReceiptItem(
+            name=f"Item {index}",
+            quantity=Decimal("1"),
+            unit_price=Decimal("1000.00"),
+            total_price=Decimal("1000.00"),
+            category_id=1,
+        )
+        for index in range(1, count + 1)
+    ]
+    created = repo.create_from_receipt_proposal(
+        owner_id=1,
+        account_id=1,
+        total_amount=Decimal(count * 1000).quantize(Decimal("0.01")),
+        merchant="D1",
+        occurred_at=NOW,
+        category_id=1,
+        items=items,
+        note=None,
+    )
+    session.commit()
+    return created.id, created.receipt_id
+
+
+def test_replace_items_rewrites_rows_and_syncs_total(
+    expense_session_factory: sessionmaker[Session],
+) -> None:
+    with expense_session_factory() as session:
+        repo = SQLAlchemyExpenseRepository(session)
+        expense_id, receipt_id = _create_receipt_with_items(repo, session, count=3)
+
+        repo.replace_items(
+            owner_id=1,
+            expense_id=expense_id,
+            items=[
+                ExpenseItemInput(
+                    name="Cafe",
+                    total_price=Decimal("2500.00"),
+                    unit_price=Decimal("2500.00"),
+                    category_id=1,
+                ),
+                ExpenseItemInput(name="Pan", total_price=Decimal("1500.00")),
+            ],
+        )
+        session.commit()
+
+        updated = repo.find_owned(owner_id=1, expense_id=expense_id)
+        assert updated is not None
+        assert updated.id == expense_id
+        assert [item.name for item in updated.items] == ["Cafe", "Pan"]
+        assert [item.amount for item in updated.items] == [
+            Decimal("2500.00"),
+            Decimal("1500.00"),
+        ]
+        # An item without a category falls back to the receipt's category.
+        assert updated.items[1].category is not None
+        assert updated.items[1].category.id == 1
+        assert updated.receipt_total == Decimal("4000.00")
+
+        positions = session.scalars(
+            select(Expense.position)
+            .where(Expense.receipt_id == receipt_id)
+            .order_by(Expense.position)
+        ).all()
+        assert list(positions) == [1, 2]
+
+        movement = session.scalar(
+            select(AccountMovement.amount).where(
+                AccountMovement.transaction_id == updated.transaction_id
+            )
+        )
+        assert movement == Decimal("-4000.00")
+
+
+def test_replace_items_grows_the_receipt_and_renumbers_positions(
+    expense_session_factory: sessionmaker[Session],
+) -> None:
+    with expense_session_factory() as session:
+        repo = SQLAlchemyExpenseRepository(session)
+        expense_id, receipt_id = _create_receipt_with_items(repo, session, count=1)
+
+        repo.replace_items(
+            owner_id=1,
+            expense_id=expense_id,
+            items=[
+                ExpenseItemInput(name="Cafe", total_price=Decimal("1000.00")),
+                ExpenseItemInput(name="Pan", total_price=Decimal("2000.00")),
+                ExpenseItemInput(name="Leche", total_price=Decimal("3000.00")),
+            ],
+        )
+        session.commit()
+
+        updated = repo.find_owned(owner_id=1, expense_id=expense_id)
+        assert updated is not None
+        assert [item.name for item in updated.items] == ["Cafe", "Pan", "Leche"]
+        assert updated.receipt_total == Decimal("6000.00")
+
+        positions = session.scalars(
+            select(Expense.position)
+            .where(Expense.receipt_id == receipt_id)
+            .order_by(Expense.position)
+        ).all()
+        assert list(positions) == [1, 2, 3]
+
+
+def test_replace_items_collapses_to_a_single_fallback_row(
+    expense_session_factory: sessionmaker[Session],
+) -> None:
+    with expense_session_factory() as session:
+        repo = SQLAlchemyExpenseRepository(session)
+        expense_id, receipt_id = _create_receipt_with_items(repo, session, count=2)
+
+        repo.replace_items(
+            owner_id=1,
+            expense_id=expense_id,
+            items=[],
+            fallback_amount=Decimal("5000.00"),
+        )
+        session.commit()
+
+        updated = repo.find_owned(owner_id=1, expense_id=expense_id)
+        assert updated is not None
+        assert [item.name for item in updated.items] == ["D1"]
+        assert updated.items[0].amount == Decimal("5000.00")
+        assert updated.receipt_total == Decimal("5000.00")
+
+        positions = session.scalars(
+            select(Expense.position).where(Expense.receipt_id == receipt_id)
+        ).all()
+        assert list(positions) == [1]
+
+        movement = session.scalar(
+            select(AccountMovement.amount).where(
+                AccountMovement.transaction_id == updated.transaction_id
+            )
+        )
+        assert movement == Decimal("-5000.00")
+
+
+def test_replace_items_ignores_expenses_the_owner_does_not_own(
+    expense_session_factory: sessionmaker[Session],
+) -> None:
+    with expense_session_factory() as session:
+        repo = SQLAlchemyExpenseRepository(session)
+        expense_id, _ = _create_receipt_with_items(repo, session, count=2)
+
+        repo.replace_items(
+            owner_id=2,
+            expense_id=expense_id,
+            items=[ExpenseItemInput(name="Hijacked", total_price=Decimal("1.00"))],
+        )
+        session.commit()
+
+        updated = repo.find_owned(owner_id=1, expense_id=expense_id)
+        assert updated is not None
+        assert [item.name for item in updated.items] == ["Item 1", "Item 2"]

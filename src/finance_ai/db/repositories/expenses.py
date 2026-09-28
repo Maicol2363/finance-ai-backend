@@ -23,6 +23,7 @@ from finance_ai.db.models.transactions import AccountMovement, FinancialTransact
 from finance_ai.expenses.repositories import (
     CategoryReference,
     CurrencyReference,
+    ExpenseItemInput,
     ExpenseItemRecord,
     ExpenseRecord,
     HistoryExpenseRecord,
@@ -30,6 +31,11 @@ from finance_ai.expenses.repositories import (
     HistoryMovementRecord,
     HistoryRecord,
 )
+
+# Expense rows are rewritten through these positions so the
+# `uq_expense_receipt_position` constraint is never violated mid-update.
+_TEMP_POSITION_OFFSET = 1000
+_ITEM_NAME_MAX_LENGTH = 200
 
 
 class SQLAlchemyExpenseRepository:
@@ -391,9 +397,7 @@ class SQLAlchemyExpenseRepository:
         if "occurred_at" in fields and occurred_at is not None:
             receipt_values["date"] = occurred_at.date()
         self.session.flush()
-        total = self.session.scalar(
-            select(func.sum(Expense.amount)).where(Expense.receipt_id == receipt_id)
-        )
+        total = self._receipt_total(receipt_id)
         if total is None:
             return
         receipt_values["total"] = total
@@ -413,6 +417,135 @@ class SQLAlchemyExpenseRepository:
                 )
                 .values(movement_values)
             )
+
+    def replace_items(
+        self,
+        *,
+        owner_id: int,
+        expense_id: int,
+        items: Sequence[ExpenseItemInput],
+        fallback_amount: Decimal | None = None,
+    ) -> None:
+        """Replace every line row of the receipt that owns ``expense_id``.
+
+        Kept rows keep their ids (row 1 stays the expense the client holds) and
+        the receipt's official total plus the account movement follow the new
+        line sum. An empty list collapses the receipt into a single fallback row
+        named after the store, mirroring receipt confirmation.
+        """
+        row = self.session.execute(
+            select(
+                Expense.receipt_id,
+                Expense.category_id,
+                Receipt.store,
+                Receipt.transaction_id,
+            )
+            .join(Receipt, Receipt.id == Expense.receipt_id)
+            .join(FinancialTransaction, FinancialTransaction.id == Receipt.transaction_id)
+            .where(
+                Expense.id == expense_id,
+                Expense.user_id == owner_id,
+                Receipt.user_id == owner_id,
+                FinancialTransaction.user_id == owner_id,
+                FinancialTransaction.transaction_type == "expense",
+            )
+            .with_for_update()
+        ).first()
+        if row is None or row.transaction_id is None:
+            return
+        receipt_id = row.receipt_id
+        receipt_category_id = row.category_id
+        transaction_id = row.transaction_id
+
+        existing = list(
+            self.session.execute(
+                select(Expense)
+                .where(Expense.receipt_id == receipt_id, Expense.user_id == owner_id)
+                .order_by(Expense.position.asc(), Expense.id.asc())
+                .with_for_update()
+            )
+            .scalars()
+            .all()
+        )
+
+        payload: list[ExpenseItemInput] = list(items)
+        if not payload:
+            amount = (
+                fallback_amount if fallback_amount is not None else self._receipt_total(receipt_id)
+            )
+            if amount is None or amount <= Decimal("0"):
+                return
+            payload = [
+                ExpenseItemInput(
+                    name=(row.store or "").strip()[:_ITEM_NAME_MAX_LENGTH] or "Receipt",
+                    total_price=amount,
+                    quantity=Decimal("1"),
+                    unit_price=amount,
+                    category_id=receipt_category_id,
+                )
+            ]
+
+        rows_after: list[Expense] = []
+        for index, item in enumerate(payload):
+            category_id = item.category_id if item.category_id is not None else receipt_category_id
+            if index < len(existing):
+                entity = existing[index]
+                entity.name = item.name
+                entity.quantity = item.quantity
+                entity.unit_price = item.unit_price
+                entity.amount = item.total_price
+                entity.category_id = category_id
+                entity.note = item.note
+                entity.item_reason = item.note
+            else:
+                entity = Expense(
+                    user_id=owner_id,
+                    receipt_id=receipt_id,
+                    category_id=category_id,
+                    position=_TEMP_POSITION_OFFSET + index,
+                    name=item.name,
+                    quantity=item.quantity,
+                    unit_price=item.unit_price,
+                    amount=item.total_price,
+                    note=item.note,
+                    item_reason=item.note,
+                    image_path=None,
+                )
+                self.session.add(entity)
+            entity.position = _TEMP_POSITION_OFFSET + index
+            rows_after.append(entity)
+
+        for surplus in existing[len(payload) :]:
+            self.session.delete(surplus)
+        self.session.flush()
+
+        for index, entity in enumerate(rows_after, start=1):
+            entity.position = index
+        self.session.flush()
+
+        total = self._receipt_total(receipt_id)
+        if total is None:
+            return
+        self.session.execute(
+            update(Receipt)
+            .where(Receipt.id == receipt_id)
+            .values(total=total, updated_at=func.now())
+        )
+        self.session.execute(
+            update(AccountMovement)
+            .where(
+                AccountMovement.transaction_id == transaction_id,
+                AccountMovement.user_id == owner_id,
+            )
+            .values(amount=-total)
+        )
+
+    def _receipt_total(self, receipt_id: int) -> Decimal | None:
+        """A receipt's official total is always the sum of its line rows."""
+        total = self.session.scalar(
+            select(func.sum(Expense.amount)).where(Expense.receipt_id == receipt_id)
+        )
+        return None if total is None else Decimal(total)
 
     def delete(self, *, owner_id: int, expense_id: int) -> None:
         transaction_id = self.session.scalar(

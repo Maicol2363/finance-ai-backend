@@ -57,6 +57,18 @@ class ExpenseRecord:
 
 
 @dataclass(frozen=True)
+class ExpenseItemInput:
+    """A caller-supplied receipt line, used when replacing a receipt's items."""
+
+    name: str
+    total_price: Decimal
+    quantity: Decimal = Decimal("1")
+    unit_price: Decimal | None = None
+    category_id: int | None = None
+    note: str | None = None
+
+
+@dataclass(frozen=True)
 class ExpenseItemRecord:
     id: int
     name: str
@@ -162,6 +174,15 @@ class ExpenseRepository(Protocol):
     ) -> None: ...
 
     def delete(self, *, owner_id: int, expense_id: int) -> None: ...
+
+    def replace_items(
+        self,
+        *,
+        owner_id: int,
+        expense_id: int,
+        items: Sequence[ExpenseItemInput],
+        fallback_amount: Decimal | None = None,
+    ) -> None: ...
 
     def list_history(
         self, *, owner_id: int, filters: HistoryFilters

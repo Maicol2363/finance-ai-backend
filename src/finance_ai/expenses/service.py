@@ -262,6 +262,7 @@ class ExpenseService:
         command: ExpenseUpdateCommand,
     ) -> ExpenseRecord:
         self._validate_command(command)
+        items_provided = "items" in command.fields
         with self.uow_factory() as uow:
             current = uow.expenses.find_owned(
                 owner_id=owner_id,
@@ -279,23 +280,41 @@ class ExpenseService:
             ):
                 raise ExpenseCategoryNotFoundError
 
+            if items_provided:
+                for item_category_id in {
+                    item.category_id for item in command.items or () if item.category_id is not None
+                }:
+                    if not uow.expenses.category_owned(
+                        owner_id=owner_id, category_id=item_category_id
+                    ):
+                        raise ExpenseCategoryNotFoundError
+
             account_id = current.account_id
             if "account_id" in command.fields:
                 assert command.account_id is not None
                 account_id = command.account_id
-            if "account_id" in command.fields or "amount" in command.fields:
+            if "account_id" in command.fields or (
+                "amount" in command.fields and not items_provided
+            ):
                 currency = uow.expenses.active_account_currency(
                     owner_id=owner_id, account_id=account_id
                 )
                 if currency is None or currency.code != current.currency.code:
                     raise ExpenseAccountInvalidError
 
+            # An submitted item list replaces the receipt's lines, and those lines
+            # define the official total: the amount is not applied separately.
+            applied_fields = (
+                frozenset(field for field in command.fields if field not in {"items", "amount"})
+                if items_provided
+                else command.fields
+            )
             uow.expenses.update(
                 owner_id=owner_id,
                 expense_id=expense_id,
-                fields=command.fields,
+                fields=applied_fields,
                 name=command.name,
-                amount=command.amount,
+                amount=None if items_provided else command.amount,
                 note=command.note,
                 receipt_name=command.receipt_name,
                 receipt_note=command.receipt_note,
@@ -304,6 +323,13 @@ class ExpenseService:
                 occurred_at=command.occurred_at,
                 description=command.description,
             )
+            if items_provided:
+                uow.expenses.replace_items(
+                    owner_id=owner_id,
+                    expense_id=expense_id,
+                    items=command.items or (),
+                    fallback_amount=command.amount,
+                )
             uow.flush()
             updated = uow.expenses.find_owned(owner_id=owner_id, expense_id=expense_id)
             if updated is None:

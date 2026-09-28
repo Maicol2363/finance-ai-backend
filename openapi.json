@@ -1052,6 +1052,94 @@
         "title": "ExpenseItemResponse",
         "type": "object"
       },
+      "ExpenseItemUpdateRequest": {
+        "additionalProperties": false,
+        "description": "One line of a receipt expense in an update payload.\n\nField limits mirror ``receipts.schemas.ConfirmedReceiptItem`` so capture-time\nconfirmation and post-hoc editing accept the same shape.",
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 999999.999,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "1.0",
+            "title": "Quantity"
+          },
+          "total_price": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 9999999999.99,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Total Price"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "name",
+          "total_price"
+        ],
+        "title": "ExpenseItemUpdateRequest",
+        "type": "object"
+      },
       "ExpenseListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1346,6 +1434,21 @@
               }
             ],
             "title": "Description"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ExpenseItemUpdateRequest"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
           },
           "name": {
             "anyOf": [
