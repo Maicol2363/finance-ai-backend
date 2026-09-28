@@ -33,7 +33,10 @@ _MODELS = (
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers defaults to True, which would silence every application logger
+    # already created in this process (for example when a test or an embedded runner applies
+    # migrations in-process).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 target_metadata = Base.metadata
 
 
