@@ -63,13 +63,31 @@ def _gemini_adapter(
     return GeminiVisionAdapter(settings)
 
 
-def test_provider_error_response_body_never_leaks(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    adapter = _gemini_adapter(monkeypatch, _FakeResponse(status_code=400, text=UPSTREAM_BODY))
+def _capture_gateway_logs() -> tuple[logging.Handler, list[logging.LogRecord]]:
+    """Captures records from the gateway logger directly.
 
-    with caplog.at_level(logging.WARNING), pytest.raises(VisionProviderError) as exc_info:
-        asyncio.run(adapter.extract_receipt_dto(b"jpeg-bytes"))
+    pytest's caplog handler lives on the root logger, which the application clears in
+    configure_logging(), so a local handler keeps these assertions order independent.
+    """
+    records: list[logging.LogRecord] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _CaptureHandler(level=logging.DEBUG)
+    logging.getLogger("finance_ai.receipts.gateway").addHandler(handler)
+    return handler, records
+
+
+def test_provider_error_response_body_never_leaks(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _gemini_adapter(monkeypatch, _FakeResponse(status_code=400, text=UPSTREAM_BODY))
+    handler, records = _capture_gateway_logs()
+    try:
+        with pytest.raises(VisionProviderError) as exc_info:
+            asyncio.run(adapter.extract_receipt_dto(b"jpeg-bytes"))
+    finally:
+        logging.getLogger("finance_ai.receipts.gateway").removeHandler(handler)
 
     # The raised error carries the status code only.
     assert exc_info.value.status_code == 400
@@ -78,30 +96,32 @@ def test_provider_error_response_body_never_leaks(
     assert "API key not valid" not in str(exc_info.value)
 
     # Nothing from the upstream body reaches the logs either.
-    assert UPSTREAM_BODY not in caplog.text
-    assert "provider-internal-ref-88231" not in caplog.text
-    assert "API key not valid" not in caplog.text
+    rendered = "\n".join(record.getMessage() for record in records)
+    assert UPSTREAM_BODY not in rendered
+    assert "provider-internal-ref-88231" not in rendered
+    assert "API key not valid" not in rendered
     assert any(
         getattr(record, "event", None) == "receipt.extraction.provider_rejected"
-        for record in caplog.records
+        for record in records
     )
 
 
-def test_unparseable_completion_is_not_logged(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_unparseable_completion_is_not_logged(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = {"choices": [{"message": {"content": f"{MODEL_OUTPUT_MARKER} is not JSON"}}]}
     adapter = _gemini_adapter(
         monkeypatch, _FakeResponse(status_code=200, text="{}", payload=payload)
     )
-
-    with caplog.at_level(logging.WARNING), pytest.raises(ValueError) as exc_info:
-        asyncio.run(adapter.extract_receipt_dto(b"jpeg-bytes"))
+    handler, records = _capture_gateway_logs()
+    try:
+        with pytest.raises(ValueError) as exc_info:
+            asyncio.run(adapter.extract_receipt_dto(b"jpeg-bytes"))
+    finally:
+        logging.getLogger("finance_ai.receipts.gateway").removeHandler(handler)
 
     assert "not valid JSON" in str(exc_info.value)
-    assert MODEL_OUTPUT_MARKER not in caplog.text
+    rendered = "\n".join(record.getMessage() for record in records)
+    assert MODEL_OUTPUT_MARKER not in rendered
     assert MODEL_OUTPUT_MARKER not in str(exc_info.value)
     assert any(
-        getattr(record, "event", None) == "receipt.extraction.invalid_json"
-        for record in caplog.records
+        getattr(record, "event", None) == "receipt.extraction.invalid_json" for record in records
     )
