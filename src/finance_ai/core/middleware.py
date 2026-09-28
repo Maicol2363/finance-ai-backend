@@ -6,7 +6,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from finance_ai.core.errors import problem_payload
-from finance_ai.core.logging import get_logger
+from finance_ai.core.logging import bind_correlation_id, get_logger
 from finance_ai.core.observability import AuthOperation, auth_metrics, registration_metrics
 
 logger = get_logger(__name__)
@@ -61,6 +61,7 @@ class RequestGuardMiddleware:
             raw_correlation if _CORRELATION_PATTERN.fullmatch(raw_correlation) else uuid4().hex
         )
         scope.setdefault("state", {})["correlation_id"] = correlation_id
+        bind_correlation_id(correlation_id)
 
         path = str(scope.get("path", ""))
         method = str(scope.get("method", ""))

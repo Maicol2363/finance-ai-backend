@@ -35,11 +35,15 @@ def test_session_policy_uses_short_access_and_bounded_renewal() -> None:
     assert policy().cleanup_cutoff(now) == now - timedelta(days=30)
 
 
-def test_settings_reject_insecure_or_inconsistent_production_values() -> None:
+def test_settings_reject_insecure_or_inconsistent_production_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FINANCE_AI_DATABASE_URL", raising=False)
+    monkeypatch.delenv("FINANCE_AI_SESSION_LIMITER_SECRET", raising=False)
     with pytest.raises(ValueError):
-        Settings(environment="production")
+        Settings(environment="production", _env_file=None)
     with pytest.raises(ValueError):
-        Settings(renewable_idle_lifetime_days=91, session_absolute_lifetime_days=90)
+        Settings(renewable_idle_lifetime_days=91, session_absolute_lifetime_days=90, _env_file=None)
 
 
 def test_account_limiter_key_is_stable_secret_keyed_and_not_the_email() -> None:

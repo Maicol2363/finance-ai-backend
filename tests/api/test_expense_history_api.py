@@ -273,3 +273,87 @@ def test_expense_patch_requires_json_and_timezone_for_dates(
     assert media_type.json()["code"] == "unsupported_media_type"
     assert naive_date.status_code == 422
     assert naive_date.json()["code"] == "request_invalid"
+
+
+def test_expense_patch_accepts_receipt_items(
+    expense_client: tuple[TestClient, StubExpenseService],
+) -> None:
+    client, service = expense_client
+
+    response = client.patch(
+        "/api/v1/expenses/7",
+        json={
+            "items": [
+                {
+                    "name": "  Cafe  ",
+                    "total_price": "2500.00",
+                    "quantity": "1",
+                    "unit_price": "2500.00",
+                    "category_id": 3,
+                },
+                {"name": "Pan", "total_price": "1500.00", "note": "  "},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    kind, payload = service.calls[0]
+    owner_id, expense_id, command = payload
+    assert kind == "update"
+    assert (owner_id, expense_id) == (42, 7)
+    assert "items" in command.fields
+    assert command.items is not None
+    assert [item.name for item in command.items] == ["Cafe", "Pan"]
+    assert command.items[0].total_price == Decimal("2500.00")
+    assert command.items[0].quantity == Decimal("1")
+    assert command.items[1].quantity == Decimal("1")
+    assert command.items[1].unit_price is None
+    assert command.items[1].category_id is None
+    assert command.items[1].note is None
+
+
+def test_expense_patch_rejects_invalid_receipt_items(
+    expense_client: tuple[TestClient, StubExpenseService],
+) -> None:
+    client, service = expense_client
+
+    blank_name = client.patch(
+        "/api/v1/expenses/7",
+        json={"items": [{"name": "   ", "total_price": "10.00"}]},
+    )
+    zero_total = client.patch(
+        "/api/v1/expenses/7",
+        json={"items": [{"name": "Cafe", "total_price": "0.00"}]},
+    )
+    zero_quantity = client.patch(
+        "/api/v1/expenses/7",
+        json={"items": [{"name": "Cafe", "total_price": "10.00", "quantity": "0"}]},
+    )
+    unknown_field = client.patch(
+        "/api/v1/expenses/7",
+        json={"items": [{"name": "Cafe", "total_price": "10.00", "discount": "1.00"}]},
+    )
+
+    for response in (blank_name, zero_total, zero_quantity, unknown_field):
+        assert response.status_code == 422
+        assert response.json()["code"] == "request_invalid"
+    assert service.calls == []
+
+
+def test_expense_patch_with_null_items_leaves_the_lines_untouched(
+    expense_client: tuple[TestClient, StubExpenseService],
+) -> None:
+    client, service = expense_client
+
+    response = client.patch("/api/v1/expenses/7", json={"items": None, "name": "Renamed"})
+    only_null = client.patch("/api/v1/expenses/7", json={"items": None})
+
+    assert response.status_code == 200
+    kind, payload = service.calls[0]
+    command = payload[2]
+    assert kind == "update"
+    assert "items" not in command.fields
+    assert command.items is None
+    assert command.name == "Renamed"
+    assert only_null.status_code == 422
+    assert only_null.json()["code"] == "request_invalid"

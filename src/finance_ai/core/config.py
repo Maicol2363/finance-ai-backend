@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     argon2_memory_kib: int = Field(default=19_456, ge=19_456)
     argon2_time_cost: int = Field(default=2, ge=2)
     argon2_parallelism: int = Field(default=1, ge=1)
+    llm_provider: Literal["gemini", "deepseek"] = "gemini"
+    gemini_api_key: SecretStr | None = None
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    gemini_model: str = "gemini-3.8-flash"
+    deepseek_api_key: SecretStr | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-flash"
+    llm_timeout_seconds: float = Field(default=30.0, ge=1, le=120)
+    llm_max_output_tokens: int = Field(default=2_048, ge=256, le=8_192)
+    llm_max_image_bytes: int = Field(default=1_048_576, ge=1_024, le=5_242_880)
 
     @model_validator(mode="after")
     def reject_disposable_defaults_outside_local(self) -> Settings:

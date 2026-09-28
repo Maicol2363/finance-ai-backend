@@ -288,6 +288,117 @@ def test_expense_read_update_recalculates_total_and_movement(client: TestClient)
         assert item is not None and item.note is None
 
 
+def _create_receipt_expense_with_second_line(
+    *, owner_id: int, account_id: int, category_id: int
+) -> tuple[int, int, int]:
+    expense_id, receipt_id, transaction_id = create_expense(
+        user_id=owner_id,
+        account_id=account_id,
+        category_id=category_id,
+    )
+    with get_session_factory()() as session:
+        session.add(
+            Expense(
+                user_id=owner_id,
+                receipt_id=receipt_id,
+                category_id=category_id,
+                position=2,
+                name="Second line",
+                quantity=Decimal("1"),
+                unit_price=Decimal("5.00"),
+                amount=Decimal("5.00"),
+            )
+        )
+        session.commit()
+    return expense_id, receipt_id, transaction_id
+
+
+def test_expense_item_replacement_updates_lines_total_and_movement(
+    client: TestClient,
+) -> None:
+    owner_id = create_user(email="owner@example.com")
+    account_id = create_account(user_id=owner_id)
+    category_id = create_category(user_id=owner_id)
+    expense_id, receipt_id, transaction_id = _create_receipt_expense_with_second_line(
+        owner_id=owner_id, account_id=account_id, category_id=category_id
+    )
+
+    replaced = client.patch(
+        f"/api/v1/expenses/{expense_id}",
+        json={
+            "items": [
+                {
+                    "name": "Cafe",
+                    "total_price": "40.00",
+                    "quantity": "2",
+                    "unit_price": "20.00",
+                    "category_id": category_id,
+                },
+                {"name": "Pan", "total_price": "10.00"},
+            ]
+        },
+    )
+
+    assert replaced.status_code == 200
+    body = replaced.json()
+    assert body["id"] == expense_id
+    assert [item["name"] for item in body["items"]] == ["Cafe", "Pan"]
+    assert [item["amount"] for item in body["items"]] == ["40.00", "10.00"]
+    assert [item["category"]["id"] for item in body["items"]] == [category_id, category_id]
+    assert body["receipt_total"] == "50.00"
+
+    with get_session_factory()() as session:
+        receipt = session.get(Receipt, receipt_id)
+        movement = session.scalar(
+            select(AccountMovement).where(AccountMovement.transaction_id == transaction_id)
+        )
+        rows = session.scalars(
+            select(Expense).where(Expense.receipt_id == receipt_id).order_by(Expense.position)
+        ).all()
+        assert receipt is not None and receipt.total == Decimal("50.00")
+        assert movement is not None and movement.amount == Decimal("-50.00")
+        assert [row.name for row in rows] == ["Cafe", "Pan"]
+        assert [row.position for row in rows] == [1, 2]
+        assert rows[0].id == expense_id
+
+
+def test_expense_item_replacement_collapses_and_rejects_foreign_categories(
+    client: TestClient,
+) -> None:
+    owner_id = create_user(email="owner@example.com")
+    account_id = create_account(user_id=owner_id)
+    category_id = create_category(user_id=owner_id)
+    expense_id, receipt_id, transaction_id = _create_receipt_expense_with_second_line(
+        owner_id=owner_id, account_id=account_id, category_id=category_id
+    )
+    foreign_owner = create_user(email="other@example.com")
+    foreign_category = create_category(user_id=foreign_owner, name="Foreign")
+
+    rejected = client.patch(
+        f"/api/v1/expenses/{expense_id}",
+        json={"items": [{"name": "Cafe", "total_price": "10.00", "category_id": foreign_category}]},
+    )
+    collapsed = client.patch(
+        f"/api/v1/expenses/{expense_id}",
+        json={"items": [], "amount": "75.00"},
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "expense_category_not_found"
+    assert collapsed.status_code == 200
+    body = collapsed.json()
+    assert [item["name"] for item in body["items"]] == ["Market"]
+    assert body["receipt_total"] == "75.00"
+
+    with get_session_factory()() as session:
+        receipt = session.get(Receipt, receipt_id)
+        movement = session.scalar(
+            select(AccountMovement).where(AccountMovement.transaction_id == transaction_id)
+        )
+        assert receipt is not None and receipt.total == Decimal("75.00")
+        assert movement is not None and movement.amount == Decimal("-75.00")
+
+
 def test_expense_ownership_editability_and_atomic_delete(client: TestClient) -> None:
     owner_id = create_user(email="owner@example.com")
     other_id = create_user(email="other@example.com")
