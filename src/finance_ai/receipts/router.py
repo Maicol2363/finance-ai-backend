@@ -5,7 +5,17 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from finance_ai.core.config import get_settings
@@ -17,7 +27,7 @@ from finance_ai.expenses.service import ExpenseService
 from finance_ai.receipts.deepseek_client import DeepSeekVisionService
 from finance_ai.receipts.dependencies import get_current_user_id
 from finance_ai.receipts.dian_resolver import DianResolverService
-from finance_ai.receipts.gateway import get_vision_gateway
+from finance_ai.receipts.gateway import ReceiptVisionGateway, get_vision_gateway
 from finance_ai.receipts.guards import (
     get_receipt_rate_limiter,
     read_and_validate_stream,
@@ -84,8 +94,99 @@ def _check_and_mark_duplicate(
                 }
             )
     except Exception as exc:
-        logger.warning("Duplicate check failed: %s", exc)
+        logger.warning(
+            "Duplicate pre-check skipped for a receipt proposal",
+            extra={
+                "event": "receipt.duplicate_check.failed",
+                "outcome": "degraded",
+                "error_type": type(exc).__name__,
+            },
+        )
     return proposal
+
+
+def _load_prompt_context(owner_id: int) -> tuple[list[str] | None, list[str] | None]:
+    """Loads the caller's category and account names used to steer the extraction prompt."""
+    try:
+        from finance_ai.categories.dependencies import get_category_service
+
+        category_service = get_category_service()
+        cat_result = category_service.list(owner_id=owner_id)
+        existing_categories: list[str] | None = [c.name for c in cat_result.categories]
+    except Exception as exc:
+        logger.warning(
+            "Category context unavailable for the receipt prompt",
+            extra={
+                "event": "receipt.prompt_context.failed",
+                "outcome": "degraded",
+                "error_type": type(exc).__name__,
+            },
+        )
+        existing_categories = None
+
+    try:
+        from finance_ai.accounts.dependencies import get_account_service
+
+        account_service = get_account_service()
+        acc_result = account_service.list(
+            owner_id=owner_id, preferred_currency_code="COP", include_inactive=False
+        )
+        existing_accounts: list[str] | None = [a.name for a in acc_result.accounts]
+    except Exception as exc:
+        logger.warning(
+            "Account context unavailable for the receipt prompt",
+            extra={
+                "event": "receipt.prompt_context.failed",
+                "outcome": "degraded",
+                "error_type": type(exc).__name__,
+            },
+        )
+        existing_accounts = None
+
+    return existing_categories, existing_accounts
+
+
+def _fallback_after_extraction_failure(
+    exc: Exception,
+    *,
+    proposal_id: UUID | None = None,
+    revision: int = 1,
+) -> ReceiptProposalResponse:
+    """Returns the manual-entry draft for a failed extraction.
+
+    Only the failure type is logged: upstream exceptions can embed provider response bodies and
+    request URLs, and the client-visible issue text stays a fixed safe message (AGENTS.md).
+    """
+    logger.warning(
+        "Receipt extraction failed; returning a manual-entry draft",
+        extra={
+            "event": "receipt.extraction.failed",
+            "outcome": "fallback",
+            "error_type": type(exc).__name__,
+        },
+    )
+    return create_fallback_proposal(proposal_id=proposal_id, revision=revision)
+
+
+async def _build_proposal_draft(
+    *,
+    image_bytes: bytes,
+    owner_id: int,
+    gateway: ReceiptVisionGateway,
+    proposal_id: UUID | None = None,
+    revision: int = 1,
+) -> ReceiptProposalResponse:
+    """Extracts and sanitizes a receipt proposal, degrading gracefully to manual entry."""
+    existing_categories, existing_accounts = _load_prompt_context(owner_id)
+    try:
+        dto, _ = await gateway.extract_receipt_dto(
+            image_bytes,
+            existing_categories=existing_categories,
+            existing_accounts=existing_accounts,
+        )
+    except Exception as exc:
+        return _fallback_after_extraction_failure(exc, proposal_id=proposal_id, revision=revision)
+    return sanitize_extraction(dto, proposal_id=proposal_id, revision=revision)
 
 
 @router.post(
@@ -130,37 +231,11 @@ async def create_receipt_proposal(
     gateway = get_vision_gateway(settings)
 
     try:
-        from finance_ai.categories.dependencies import get_category_service
-
-        category_service = get_category_service()
-        cat_result = category_service.list(owner_id=user_id)
-        existing_categories = [c.name for c in cat_result.categories]
-    except Exception as exc:
-        logger.warning("Failed to load user categories for receipt prompt: %s", exc)
-        existing_categories = None
-
-    try:
-        from finance_ai.accounts.dependencies import get_account_service
-
-        account_service = get_account_service()
-        acc_result = account_service.list(
-            owner_id=user_id, preferred_currency_code="COP", include_inactive=False
+        proposal = await _build_proposal_draft(
+            image_bytes=comp_bytes,
+            owner_id=user_id,
+            gateway=gateway,
         )
-        existing_accounts = [a.name for a in acc_result.accounts]
-    except Exception as exc:
-        logger.warning("Failed to load user accounts for receipt prompt: %s", exc)
-        existing_accounts = None
-
-    try:
-        dto, _ = await gateway.extract_receipt_dto(
-            comp_bytes,
-            existing_categories=existing_categories,
-            existing_accounts=existing_accounts,
-        )
-        proposal = sanitize_extraction(dto)
-    except Exception as exc:
-        logger.warning("Multimodal vision extraction failed, returning fallback proposal: %s", exc)
-        proposal = create_fallback_proposal(error_message=str(exc))
     finally:
         del comp_bytes
 
@@ -240,43 +315,11 @@ async def retry_receipt_proposal(
     gateway = get_vision_gateway(settings)
 
     try:
-        from finance_ai.categories.dependencies import get_category_service
-
-        category_service = get_category_service()
-        cat_result = category_service.list(owner_id=user_id)
-        existing_categories = [c.name for c in cat_result.categories]
-    except Exception as exc:
-        logger.warning("Failed to load user categories for retry receipt prompt: %s", exc)
-        existing_categories = None
-
-    try:
-        from finance_ai.accounts.dependencies import get_account_service
-
-        account_service = get_account_service()
-        acc_result = account_service.list(
-            owner_id=user_id, preferred_currency_code="COP", include_inactive=False
-        )
-        existing_accounts = [a.name for a in acc_result.accounts]
-    except Exception as exc:
-        logger.warning("Failed to load user accounts for retry receipt prompt: %s", exc)
-        existing_accounts = None
-
-    try:
-        dto, _ = await gateway.extract_receipt_dto(
-            comp_bytes,
-            existing_categories=existing_categories,
-            existing_accounts=existing_accounts,
-        )
-        new_proposal = sanitize_extraction(
-            dto,
+        new_proposal = await _build_proposal_draft(
+            image_bytes=comp_bytes,
+            owner_id=user_id,
+            gateway=gateway,
             proposal_id=proposal_id,
-            revision=row.revision + 1,
-        )
-    except Exception as exc:
-        logger.warning("Retry multimodal extraction failed: %s", exc)
-        new_proposal = create_fallback_proposal(
-            proposal_id=proposal_id,
-            error_message=str(exc),
             revision=row.revision + 1,
         )
     finally:
@@ -367,7 +410,14 @@ async def scan_receipt(
     try:
         extraction, ai_ms = await vision_service.extract_receipt(comp_bytes)
     except Exception as exc:
-        logger.error("Vision extraction failed: %s", exc)
+        logger.error(
+            "Legacy receipt scan extraction failed",
+            extra={
+                "event": "receipt.scan.failed",
+                "outcome": "upstream_error",
+                "error_type": type(exc).__name__,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Receipt extraction failed.",

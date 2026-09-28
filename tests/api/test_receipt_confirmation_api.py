@@ -272,4 +272,3 @@ def test_confirm_receipt_proposal_response_includes_items_and_receipt_total() ->
     assert data["items"][0]["amount"] == "5300.00"
     assert data["items"][1]["name"] == "Galletas"
     assert data["items"][1]["amount"] == "6400.00"
-

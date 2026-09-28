@@ -202,20 +202,26 @@ def sanitize_raw_extraction(
 sanitize = sanitize_raw_extraction
 
 
+PROVIDER_UNAVAILABLE_MESSAGE = (
+    "No se pudo extraer la información automáticamente. Puedes ingresar los datos manualmente."
+)
+
+
 def create_fallback_proposal(
     proposal_id: UUID | None = None,
-    error_message: str | None = None,
     revision: int = 1,
 ) -> ReceiptProposalResponse:
-    """Generates an editable fallback proposal when upstream AI providers fail or timeout."""
+    """Generates an editable fallback proposal when upstream AI providers fail or timeout.
+
+    The issue text is a fixed, safe message on purpose: provider failures carry internal request
+    identifiers, quota details and request echoes that must never reach the client (AGENTS.md
+    error and privacy contract).
+    """
     pid = proposal_id or uuid4()
     now = datetime.now(UTC)
     # Same 24h window as a normal draft: filling the required fields by hand after a provider
     # outage must not race the clock.
     expires_at = now + timedelta(hours=24)
-    msg = error_message or (
-        "No se pudo extraer la información automáticamente. Puedes ingresar los datos manualmente."
-    )
 
     return ReceiptProposalResponse(
         proposal_id=pid,
@@ -229,7 +235,7 @@ def create_fallback_proposal(
         issues=[
             ValidationIssue(
                 code="PROVIDER_UNAVAILABLE",
-                message=msg,
+                message=PROVIDER_UNAVAILABLE_MESSAGE,
                 severity="error",
             )
         ],

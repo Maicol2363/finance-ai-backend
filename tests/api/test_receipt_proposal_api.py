@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import sqlite3
 from collections.abc import Iterator
 from decimal import Decimal
@@ -164,8 +165,49 @@ def test_proposal_lifecycle_create_get_retry_delete(
         assert del_resp.json()["status"] == "discarded"
 
 
+def test_create_proposal_provider_failure_returns_safe_fallback(
+    client_user_1: TestClient,
+) -> None:
+    """A provider outage must not expose upstream error text to the client (Codex review #2)."""
+    upstream_marker = "provider-internal-ref-88231"
+    captured_messages: list[str] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured_messages.append(record.getMessage())
+
+    router_logger = logging.getLogger("finance_ai.receipts.router")
+    handler = _CaptureHandler()
+    router_logger.addHandler(handler)
+    # A dedicated user id keeps this test clear of the process-wide upload rate limiter.
+    client_user_1.app.dependency_overrides[get_current_user_id] = lambda: 707
+    try:
+        with patch(
+            "finance_ai.receipts.gateway.GeminiVisionAdapter.extract_receipt_dto",
+            new=AsyncMock(
+                side_effect=RuntimeError(f"Vision provider returned HTTP 400: {upstream_marker}")
+            ),
+        ):
+            resp = client_user_1.post(
+                "/api/v1/receipts/proposal",
+                files={"file": ("receipt.jpg", _make_test_jpeg(), "image/jpeg")},
+            )
+    finally:
+        router_logger.removeHandler(handler)
+        client_user_1.app.dependency_overrides[get_current_user_id] = lambda: 101
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["status"] == "failed_extraction"
+    assert data["issues"][0]["code"] == "PROVIDER_UNAVAILABLE"
+    assert "manualmente" in data["issues"][0]["message"]
+    assert upstream_marker not in resp.text
+    assert all(upstream_marker not in message for message in captured_messages)
+
+
 def test_create_proposal_detects_duplicate_receipt(client_user_1: TestClient) -> None:
     from unittest.mock import MagicMock
+
     from finance_ai.expenses.dependencies import get_expense_service
     from finance_ai.expenses.service import ExpenseService
 
@@ -189,7 +231,6 @@ def test_create_proposal_detects_duplicate_receipt(client_user_1: TestClient) ->
     app.dependency_overrides[get_current_user_id] = lambda: 303
     app.dependency_overrides[get_expense_service] = lambda: mock_service
 
-
     with patch(
         "finance_ai.receipts.gateway.GeminiVisionAdapter.extract_receipt_dto",
         new=AsyncMock(return_value=(mock_dto, 350.0)),
@@ -203,4 +244,3 @@ def test_create_proposal_detects_duplicate_receipt(client_user_1: TestClient) ->
         assert data["possible_duplicate"] is True
         assert "Ya registraste una compra en D1 SAS" in data["duplicate_warning"]
         assert any(i["code"] == "possible_duplicate" for i in data["issues"])
-

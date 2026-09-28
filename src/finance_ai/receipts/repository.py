@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.orm import Session
 
 from finance_ai.receipts.models import ReceiptProposalModel
@@ -28,16 +30,14 @@ class ReceiptProposalRepository:
                 & (ReceiptProposalModel.created_at < now - timedelta(hours=24))
             )
         )
-        res = self.session.execute(stmt)
+        result = cast("CursorResult[Any]", self.session.execute(stmt))
         self.session.flush()
-        return res.rowcount or 0
+        return result.rowcount or 0
 
     def create(self, user_id: int, proposal: ReceiptProposalResponse) -> ReceiptProposalModel:
         """Stores a new receipt proposal draft and opportunistically purges expired drafts."""
-        try:
+        with contextlib.suppress(Exception):
             self.purge_expired()
-        except Exception:
-            pass
 
         data = proposal.model_dump(mode="json")
         row = ReceiptProposalModel(

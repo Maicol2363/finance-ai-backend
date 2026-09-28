@@ -35,7 +35,9 @@ def test_session_policy_uses_short_access_and_bounded_renewal() -> None:
     assert policy().cleanup_cutoff(now) == now - timedelta(days=30)
 
 
-def test_settings_reject_insecure_or_inconsistent_production_values(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_reject_insecure_or_inconsistent_production_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("FINANCE_AI_DATABASE_URL", raising=False)
     monkeypatch.delenv("FINANCE_AI_SESSION_LIMITER_SECRET", raising=False)
     with pytest.raises(ValueError):

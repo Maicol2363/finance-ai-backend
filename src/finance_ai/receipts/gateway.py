@@ -31,6 +31,26 @@ MAX_JSON_DEPTH = 8
 _provider_call_semaphore = asyncio.Semaphore(2)
 
 
+class VisionProviderError(RuntimeError):
+    """Raised when a provider rejects or fails an extraction request.
+
+    Carries only the upstream HTTP status code. Response bodies can contain internal request
+    identifiers, quota details and echoed prompt text, so they must never reach the client or the
+    structured logs (see AGENTS.md error and privacy contract).
+    """
+
+    def __init__(self, *, status_code: int) -> None:
+        super().__init__(f"Vision provider returned HTTP {status_code}")
+        self.status_code = status_code
+
+
+def _require_json_object(value: Any) -> dict[str, Any]:
+    """Confirms a decoded provider completion is a JSON object before schema validation."""
+    if not isinstance(value, dict):
+        raise ValueError("Provider completion is not a JSON object")
+    return value
+
+
 def build_untrusted_receipt_prompt(
     existing_categories: list[str] | None = None,
     existing_accounts: list[str] | None = None,
@@ -123,18 +143,18 @@ def try_repair_json(text: str) -> dict[str, Any]:
         cleaned = cleaned.strip()
 
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
+        return _require_json_object(json.loads(cleaned))
+    except json.JSONDecodeError, ValueError:
         pass
 
     # If truncated inside items list, truncate to last valid closed item '}'
     if '"items":' in cleaned:
         match = re.search(r'("items"\s*:\s*\[.*?\})\s*,\s*\{[^}]*$', cleaned, re.DOTALL)
         if match:
-            candidate = cleaned[:match.end(1)] + "]}"
+            candidate = cleaned[: match.end(1)] + "]}"
             try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
+                return _require_json_object(json.loads(candidate))
+            except json.JSONDecodeError, ValueError:
                 pass
 
     # Balance unclosed quotes and brackets
@@ -145,27 +165,26 @@ def try_repair_json(text: str) -> dict[str, Any]:
         if escape:
             escape = False
             continue
-        if ch == '\\':
+        if ch == "\\":
             escape = True
             continue
         if ch == '"':
             in_string = not in_string
             continue
         if not in_string:
-            if ch in '{[':
-                stack.append('}' if ch == '{' else ']')
-            elif ch in '}]':
-                if stack and stack[-1] == ch:
-                    stack.pop()
+            if ch in "{[":
+                stack.append("}" if ch == "{" else "]")
+            elif ch in "}]" and stack and stack[-1] == ch:
+                stack.pop()
 
     repaired = cleaned
     if in_string:
         repaired += '"'
-    repaired = re.sub(r',\s*$', '', repaired)
+    repaired = re.sub(r",\s*$", "", repaired)
     while stack:
         repaired += stack.pop()
 
-    return json.loads(repaired)
+    return _require_json_object(json.loads(repaired))
 
 
 class ReceiptVisionGateway(ABC):
@@ -193,12 +212,14 @@ class BaseOpenAIVisionAdapter(ReceiptVisionGateway):
         api_key: str,
         model: str,
         *,
+        provider: str = "openai_compatible",
         max_tokens: int = 4096,
         extra_body_params: dict[str, Any] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        self.provider = provider
         self.max_tokens = max_tokens
         self.extra_body_params = extra_body_params or {}
 
@@ -261,10 +282,18 @@ class BaseOpenAIVisionAdapter(ReceiptVisionGateway):
             duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
         if resp.status_code != 200:
-            logger.error("Provider API error (%s): %s", resp.status_code, resp.text[:200])
-            raise RuntimeError(
-                f"Vision provider returned HTTP {resp.status_code}: {resp.text[:200]}"
+            logger.error(
+                "Vision provider rejected the extraction request (status %s, model %s)",
+                resp.status_code,
+                self.model,
+                extra={
+                    "event": "receipt.extraction.provider_rejected",
+                    "outcome": "upstream_error",
+                    "provider": self.provider,
+                    "status": resp.status_code,
+                },
             )
+            raise VisionProviderError(status_code=resp.status_code)
 
         raw_bytes = resp.content
         if len(raw_bytes) > MAX_WIRE_BYTES:
@@ -276,14 +305,25 @@ class BaseOpenAIVisionAdapter(ReceiptVisionGateway):
             raise ValueError("Provider completion text exceeds size limit (512 KiB)")
 
         try:
-            parsed = json.loads(raw_content)
+            parsed = _require_json_object(json.loads(raw_content))
         except json.JSONDecodeError as exc:
             try:
                 parsed = try_repair_json(raw_content)
                 logger.info("Successfully repaired truncated provider JSON completion")
             except Exception:
-                logger.error("Provider returned invalid JSON: %s", raw_content[:200])
-                raise ValueError(f"Model response is not valid JSON: {exc}") from exc
+                # The completion is model output and can contain the user's receipt contents, so
+                # only its size and the failure type are logged (AGENTS.md privacy contract).
+                logger.error(
+                    "Vision provider returned an unparseable completion (%s chars)",
+                    len(raw_content),
+                    extra={
+                        "event": "receipt.extraction.invalid_json",
+                        "outcome": "upstream_error",
+                        "provider": self.provider,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                raise ValueError("Model response is not valid JSON") from exc
 
         check_json_depth(parsed)
         dto = RawExtractionDTO.model_validate(parsed)
@@ -302,6 +342,7 @@ class GeminiVisionAdapter(BaseOpenAIVisionAdapter):
             base_url=cfg.gemini_base_url,
             api_key=api_key,
             model=cfg.gemini_model,
+            provider="gemini",
         )
         self.settings = cfg
 
@@ -333,9 +374,14 @@ class GeminiVisionAdapter(BaseOpenAIVisionAdapter):
                     )
                 except (RuntimeError, httpx.TimeoutException, httpx.RequestError) as exc:
                     logger.warning(
-                        "Gemini model '%s' unavailable or timed out (%s). Attempting fallback model...",
+                        "Gemini model %s unavailable; trying the next vision model",
                         m,
-                        exc,
+                        extra={
+                            "event": "receipt.extraction.model_unavailable",
+                            "outcome": "retry",
+                            "provider": self.provider,
+                            "error_type": type(exc).__name__,
+                        },
                     )
                     last_error = exc
                     continue
@@ -345,9 +391,13 @@ class GeminiVisionAdapter(BaseOpenAIVisionAdapter):
         if last_error:
             if self.settings.deepseek_api_key:
                 logger.warning(
-                    "All Gemini vision models failed (%s). "
-                    "Falling back seamlessly to DeepSeek Vision...",
-                    last_error,
+                    "All Gemini vision models failed; falling back to DeepSeek Vision",
+                    extra={
+                        "event": "receipt.extraction.provider_fallback",
+                        "outcome": "fallback",
+                        "provider": "deepseek",
+                        "error_type": type(last_error).__name__,
+                    },
                 )
                 deepseek_adapter = DeepSeekVisionAdapter(self.settings)
                 return await deepseek_adapter.extract_receipt_dto(
@@ -371,6 +421,7 @@ class DeepSeekVisionAdapter(BaseOpenAIVisionAdapter):
             base_url=cfg.deepseek_base_url,
             api_key=api_key,
             model=cfg.deepseek_model,
+            provider="deepseek",
             extra_body_params={"thinking": {"type": "disabled"}},
         )
         self.settings = cfg
@@ -394,8 +445,13 @@ class DeepSeekVisionAdapter(BaseOpenAIVisionAdapter):
         except Exception as exc:
             if enable_gemini_fallback and self.settings.gemini_api_key:
                 logger.warning(
-                    "DeepSeek Vision failed (%s). Falling back seamlessly to Gemini Vision...",
-                    exc,
+                    "DeepSeek Vision failed; falling back to Gemini Vision",
+                    extra={
+                        "event": "receipt.extraction.provider_fallback",
+                        "outcome": "fallback",
+                        "provider": "gemini",
+                        "error_type": type(exc).__name__,
+                    },
                 )
                 gemini_adapter = GeminiVisionAdapter(self.settings)
                 return await gemini_adapter.extract_receipt_dto(
@@ -413,4 +469,3 @@ def get_vision_gateway(settings: Settings | None = None) -> ReceiptVisionGateway
     if cfg.llm_provider == "deepseek":
         return DeepSeekVisionAdapter(cfg)
     return GeminiVisionAdapter(cfg)
-

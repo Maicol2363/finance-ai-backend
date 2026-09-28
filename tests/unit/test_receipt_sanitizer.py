@@ -7,6 +7,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from finance_ai.receipts.sanitizer import (
+    PROVIDER_UNAVAILABLE_MESSAGE,
     contains_suspicious_payload,
     create_fallback_proposal,
     sanitize_extraction,
@@ -103,7 +104,7 @@ def test_missing_total_not_synthesized() -> None:
 
 def test_fallback_proposal_structure() -> None:
     pid = uuid4()
-    proposal = create_fallback_proposal(pid, "DeepSeek rate limited")
+    proposal = create_fallback_proposal(pid)
 
     assert proposal.proposal_id == pid
     assert proposal.status == "failed_extraction"
@@ -111,6 +112,7 @@ def test_fallback_proposal_structure() -> None:
     assert proposal.total_amount is None
     assert len(proposal.issues) == 1
     assert proposal.issues[0].code == "PROVIDER_UNAVAILABLE"
+    assert proposal.issues[0].message == PROVIDER_UNAVAILABLE_MESSAGE
 
 
 def test_fallback_proposal_keeps_full_manual_completion_window() -> None:
