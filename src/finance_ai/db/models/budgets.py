@@ -7,6 +7,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Numeric,
@@ -73,6 +74,20 @@ class Budget(Base):
             ")",
             name="budget_schedule_fields",
         ),
+        CheckConstraint(
+            "schedule_type IN ('recurring', 'one_time')",
+            name="budget_schedule_type_supported",
+        ),
+        CheckConstraint(
+            "frequency_unit IS NULL OR frequency_unit IN ('day', 'week', 'month', 'year')",
+            name="budget_frequency_unit_supported",
+        ),
+        ForeignKeyConstraint(
+            ["category_id", "user_id"],
+            ["category.id", "category.user_id"],
+            name="fk_budget_category_owner",
+            ondelete="CASCADE",
+        ),
         Index("ix_budget_user_active", "user_id", "is_active"),
         Index("ix_budget_user_dates", "user_id", "starts_on", "ends_on"),
         Index("ix_budget_category_active", "category_id", "is_active"),
@@ -85,9 +100,7 @@ class Budget(Base):
     currency_id: Mapped[int] = mapped_column(
         ForeignKey("currency.id", ondelete="RESTRICT"), nullable=False
     )
-    category_id: Mapped[int | None] = mapped_column(
-        ForeignKey("category.id", ondelete="SET NULL"), nullable=True
-    )
+    category_id: Mapped[int | None] = mapped_column(BigIntPK, nullable=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     schedule_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -105,4 +118,4 @@ class Budget(Base):
 
     user: Mapped[AppUser] = relationship()
     currency: Mapped[Currency] = relationship()
-    category: Mapped[Category | None] = relationship()
+    category: Mapped[Category | None] = relationship(viewonly=True)
