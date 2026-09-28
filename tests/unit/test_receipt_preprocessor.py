@@ -72,3 +72,16 @@ async def test_preprocess_receipt_image_ephemeral_async() -> None:
     assert meta.width == 600
     assert meta.height == 800
     assert len(compressed) > 0
+
+
+def test_decode_failure_returns_a_safe_detail() -> None:
+    """Client-visible decode errors must not echo the decoder exception (Codex review #2 family)."""
+    corrupted = b"\xff\xd8\xff\xe0" + b"\x00" * 64  # JPEG magic header, undecodable body
+
+    with pytest.raises(HTTPException) as exc_info:
+        _process_image_sync(corrupted, quality=85)
+
+    assert exc_info.value.status_code == 422
+    assert "Failed to decode image" in exc_info.value.detail
+    assert "cannot identify" not in exc_info.value.detail.lower()
+    assert "bytesio" not in exc_info.value.detail.lower()

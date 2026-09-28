@@ -10,7 +10,10 @@ from typing import Literal
 from fastapi import HTTPException, status
 from PIL import Image, ImageOps
 
+from finance_ai.core.logging import get_logger
 from finance_ai.receipts.schemas import ImageOptimizationMeta
+
+logger = get_logger(__name__)
 
 # Security limits against decompression bombs and excessive raster sizes
 MAX_IMAGE_PIXELS = 20_000_000
@@ -95,15 +98,25 @@ def _process_image_sync(
             compressed_bytes = out_buffer.getvalue()
     except Image.DecompressionBombError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Image exceeds pixel limit (potential decompression bomb detected).",
         ) from exc
     except HTTPException:
         raise
     except Exception as exc:
+        # Decoder messages can echo file contents or parser internals, so only the failure type
+        # is recorded and the client receives a fixed safe detail (AGENTS.md privacy contract).
+        logger.warning(
+            "Receipt image decode failed",
+            extra={
+                "event": "receipt.preprocess.decode_failed",
+                "outcome": "invalid_input",
+                "error_type": type(exc).__name__,
+            },
+        )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Failed to decode image: {exc}",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Failed to decode image. Use a valid JPEG, PNG, HEIC or WEBP file.",
         ) from exc
 
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
