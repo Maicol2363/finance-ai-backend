@@ -321,6 +321,16 @@ class ExpenseNotFoundError(AppError):
         )
 
 
+class ReceiptProposalNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="receipt_proposal_not_found",
+            title="Receipt proposal not found",
+            detail="This receipt draft is no longer available. Scan the receipt again.",
+        )
+
+
 class ExpenseNotEditableError(AppError):
     def __init__(self) -> None:
         super().__init__(

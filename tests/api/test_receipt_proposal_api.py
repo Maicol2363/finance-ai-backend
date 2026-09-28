@@ -17,11 +17,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from finance_ai.core.errors import AuthenticationRequiredError
-from finance_ai.db.session import get_db_session
+from finance_ai.db.receipt_uow import SQLAlchemyReceiptProposalUnitOfWork
 from finance_ai.main import create_app
-from finance_ai.receipts.dependencies import get_current_user_id
+from finance_ai.receipts.dependencies import get_current_user_id, get_receipt_proposal_service
 from finance_ai.receipts.models import ReceiptProposalModel
 from finance_ai.receipts.schemas import RawCandidateItem, RawExtractionDTO
+from finance_ai.receipts.service import ReceiptProposalService
+from finance_ai.receipts.uow import ReceiptProposalUnitOfWork
 
 
 def _make_test_jpeg() -> bytes:
@@ -32,7 +34,7 @@ def _make_test_jpeg() -> bytes:
 
 
 @pytest.fixture
-def db_session() -> Iterator[Session]:
+def session_factory() -> Iterator[sessionmaker[Session]]:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -45,27 +47,39 @@ def db_session() -> Iterator[Session]:
             dbapi_connection.create_function("btrim", 1, lambda s: s.strip() if s else s)
 
     ReceiptProposalModel.__table__.create(engine)
-    session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with session_factory() as session:
-        yield session
+    yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     ReceiptProposalModel.__table__.drop(engine)
 
 
+def _build_service(
+    session_factory: sessionmaker[Session], *, duplicate: bool = False
+) -> ReceiptProposalService:
+    """Builds the real application service on the in-memory database used by these tests."""
+
+    def uow_factory() -> ReceiptProposalUnitOfWork:
+        return SQLAlchemyReceiptProposalUnitOfWork(session_factory)
+
+    def duplicate_lookup(*_args: object, **_kwargs: object) -> bool:
+        return duplicate
+
+    return ReceiptProposalService(uow_factory=uow_factory, duplicate_lookup=duplicate_lookup)
+
+
 @pytest.fixture
-def client_user_1(db_session: Session) -> Iterator[TestClient]:
+def client_user_1(session_factory: sessionmaker[Session]) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_current_user_id] = lambda: 101
-    app.dependency_overrides[get_db_session] = lambda: db_session
+    app.dependency_overrides[get_receipt_proposal_service] = lambda: _build_service(session_factory)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
 
 @pytest.fixture
-def client_user_2(db_session: Session) -> Iterator[TestClient]:
+def client_user_2(session_factory: sessionmaker[Session]) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_current_user_id] = lambda: 202
-    app.dependency_overrides[get_db_session] = lambda: db_session
+    app.dependency_overrides[get_receipt_proposal_service] = lambda: _build_service(session_factory)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
@@ -205,12 +219,9 @@ def test_create_proposal_provider_failure_returns_safe_fallback(
     assert all(upstream_marker not in message for message in captured_messages)
 
 
-def test_create_proposal_detects_duplicate_receipt(client_user_1: TestClient) -> None:
-    from unittest.mock import MagicMock
-
-    from finance_ai.expenses.dependencies import get_expense_service
-    from finance_ai.expenses.service import ExpenseService
-
+def test_create_proposal_detects_duplicate_receipt(
+    client_user_1: TestClient, session_factory: sessionmaker[Session]
+) -> None:
     mock_dto = RawExtractionDTO(
         is_receipt=True,
         merchant_name="D1 SAS",
@@ -224,12 +235,12 @@ def test_create_proposal_detects_duplicate_receipt(client_user_1: TestClient) ->
         ],
     )
 
-    mock_service = MagicMock(spec=ExpenseService)
-    mock_service.find_potential_duplicate.return_value = True
-
     app = client_user_1.app
     app.dependency_overrides[get_current_user_id] = lambda: 303
-    app.dependency_overrides[get_expense_service] = lambda: mock_service
+    # The duplicate hint is applied by the proposal service through its lookup port.
+    app.dependency_overrides[get_receipt_proposal_service] = lambda: _build_service(
+        session_factory, duplicate=True
+    )
 
     with patch(
         "finance_ai.receipts.gateway.GeminiVisionAdapter.extract_receipt_dto",
@@ -239,8 +250,9 @@ def test_create_proposal_detects_duplicate_receipt(client_user_1: TestClient) ->
             "/api/v1/receipts/proposal",
             files={"file": ("receipt.jpg", _make_test_jpeg(), "image/jpeg")},
         )
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["possible_duplicate"] is True
-        assert "Ya registraste una compra en D1 SAS" in data["duplicate_warning"]
-        assert any(i["code"] == "possible_duplicate" for i in data["issues"])
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["possible_duplicate"] is True
+    assert "Ya registraste una compra en D1 SAS" in data["duplicate_warning"]
+    assert any(i["code"] == "possible_duplicate" for i in data["issues"])

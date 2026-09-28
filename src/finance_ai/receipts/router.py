@@ -16,16 +16,14 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy.orm import Session
 
 from finance_ai.core.config import get_settings
 from finance_ai.core.logging import get_logger
-from finance_ai.db.session import get_db_session
 from finance_ai.expenses.dependencies import get_expense_service
 from finance_ai.expenses.schemas import ExpenseResponse
 from finance_ai.expenses.service import ExpenseService
 from finance_ai.receipts.deepseek_client import DeepSeekVisionService
-from finance_ai.receipts.dependencies import get_current_user_id
+from finance_ai.receipts.dependencies import get_current_user_id, get_receipt_proposal_service
 from finance_ai.receipts.gateway import ReceiptVisionGateway, get_vision_gateway
 from finance_ai.receipts.guards import (
     get_receipt_rate_limiter,
@@ -36,71 +34,16 @@ from finance_ai.receipts.preprocessor import (
     preprocess_receipt_image,
     preprocess_receipt_image_ephemeral,
 )
-from finance_ai.receipts.repository import ReceiptProposalRepository
 from finance_ai.receipts.sanitizer import create_fallback_proposal, sanitize_extraction
 from finance_ai.receipts.schemas import (
     ReceiptProposalConfirmRequest,
     ReceiptProposalResponse,
     ReceiptScanResponse,
-    ValidationIssue,
 )
+from finance_ai.receipts.service import ReceiptProposalService
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/receipts", tags=["Receipt Intelligence"])
-
-
-def _check_and_mark_duplicate(
-    proposal: ReceiptProposalResponse,
-    user_id: int,
-    expense_service: ExpenseService,
-) -> ReceiptProposalResponse:
-    try:
-        from datetime import UTC, datetime
-
-        if not proposal.merchant_name or not proposal.total_amount:
-            return proposal
-        if proposal.purchase_date:
-            try:
-                p_date = datetime.strptime(proposal.purchase_date, "%Y-%m-%d").date()
-            except Exception:
-                p_date = datetime.now(UTC).date()
-        else:
-            p_date = datetime.now(UTC).date()
-
-        if expense_service.find_potential_duplicate(
-            owner_id=user_id,
-            merchant=proposal.merchant_name,
-            total_amount=proposal.total_amount,
-            occurred_date=p_date,
-        ):
-            warning_msg = (
-                f"Ya registraste una compra en {proposal.merchant_name} "
-                f"por ${proposal.total_amount:,.2f} en esta fecha."
-            )
-            return proposal.model_copy(
-                update={
-                    "possible_duplicate": True,
-                    "duplicate_warning": warning_msg,
-                    "issues": [
-                        *proposal.issues,
-                        ValidationIssue(
-                            code="possible_duplicate",
-                            message=warning_msg,
-                            severity="warning",
-                        ),
-                    ],
-                }
-            )
-    except Exception as exc:
-        logger.warning(
-            "Duplicate pre-check skipped for a receipt proposal",
-            extra={
-                "event": "receipt.duplicate_check.failed",
-                "outcome": "degraded",
-                "error_type": type(exc).__name__,
-            },
-        )
-    return proposal
 
 
 def _load_prompt_context(owner_id: int) -> tuple[list[str] | None, list[str] | None]:
@@ -196,8 +139,7 @@ async def _build_proposal_draft(
 async def create_receipt_proposal(
     file: Annotated[UploadFile, File(...)],
     user_id: Annotated[int, Depends(get_current_user_id)],
-    db_session: Annotated[Session, Depends(get_db_session)],
-    expense_service: Annotated[ExpenseService, Depends(get_expense_service)],
+    service: Annotated[ReceiptProposalService, Depends(get_receipt_proposal_service)],
     rotation: Annotated[int, Query()] = 0,
     rotation_degrees: Annotated[int | None, Form()] = None,
 ) -> ReceiptProposalResponse:
@@ -237,15 +179,8 @@ async def create_receipt_proposal(
     finally:
         del comp_bytes
 
-    # 6. Check potential duplicate
-    proposal = _check_and_mark_duplicate(proposal, user_id, expense_service)
-
-    # 7. Save Draft State in Database (0 Media Blob Bytes)
-    repo = ReceiptProposalRepository(db_session)
-    repo.create(user_id, proposal)
-    db_session.commit()
-
-    return proposal
+    # 6. Persist the draft (transactions belong to the application service)
+    return service.create_draft(owner_id=user_id, proposal=proposal)
 
 
 @router.get(
@@ -257,17 +192,10 @@ async def create_receipt_proposal(
 def get_receipt_proposal(
     proposal_id: UUID,
     user_id: Annotated[int, Depends(get_current_user_id)],
-    db_session: Annotated[Session, Depends(get_db_session)],
+    service: Annotated[ReceiptProposalService, Depends(get_receipt_proposal_service)],
 ) -> ReceiptProposalResponse:
     """Retrieves an existing proposal ensuring user ownership."""
-    repo = ReceiptProposalRepository(db_session)
-    row = repo.get_by_id_for_user(user_id, proposal_id)
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Receipt proposal not found.",
-        )
-    return ReceiptProposalResponse.model_validate(row.proposal_data)
+    return service.get_draft(owner_id=user_id, proposal_id=proposal_id)
 
 
 @router.post(
@@ -280,19 +208,12 @@ async def retry_receipt_proposal(
     proposal_id: UUID,
     file: Annotated[UploadFile, File(...)],
     user_id: Annotated[int, Depends(get_current_user_id)],
-    db_session: Annotated[Session, Depends(get_db_session)],
-    expense_service: Annotated[ExpenseService, Depends(get_expense_service)],
+    service: Annotated[ReceiptProposalService, Depends(get_receipt_proposal_service)],
     rotation: Annotated[int, Query()] = 0,
     rotation_degrees: Annotated[int | None, Form()] = None,
 ) -> ReceiptProposalResponse:
     """Re-analyzes receipt with updated rotation orientation without persistent cloud storage."""
-    repo = ReceiptProposalRepository(db_session)
-    row = repo.get_by_id_for_user(user_id, proposal_id)
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Receipt proposal not found.",
-        )
+    current = service.get_draft(owner_id=user_id, proposal_id=proposal_id)
 
     rate_limiter = get_receipt_rate_limiter()
     rate_limiter.check_rate_limit(user_id)
@@ -318,16 +239,12 @@ async def retry_receipt_proposal(
             owner_id=user_id,
             gateway=gateway,
             proposal_id=proposal_id,
-            revision=row.revision + 1,
+            revision=current.revision + 1,
         )
     finally:
         del comp_bytes
 
-    new_proposal = _check_and_mark_duplicate(new_proposal, user_id, expense_service)
-    repo.update(user_id, proposal_id, new_proposal)
-    db_session.commit()
-
-    return new_proposal
+    return service.replace_draft(owner_id=user_id, proposal_id=proposal_id, proposal=new_proposal)
 
 
 @router.delete(
@@ -338,17 +255,10 @@ async def retry_receipt_proposal(
 def discard_receipt_proposal(
     proposal_id: UUID,
     user_id: Annotated[int, Depends(get_current_user_id)],
-    db_session: Annotated[Session, Depends(get_db_session)],
+    service: Annotated[ReceiptProposalService, Depends(get_receipt_proposal_service)],
 ) -> dict[str, Any]:
     """Marks a proposal draft as discarded."""
-    repo = ReceiptProposalRepository(db_session)
-    discarded = repo.discard(user_id, proposal_id)
-    if not discarded:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Receipt proposal not found.",
-        )
-    db_session.commit()
+    service.discard_draft(owner_id=user_id, proposal_id=proposal_id)
     return {"status": "discarded", "proposal_id": str(proposal_id)}
 
 
