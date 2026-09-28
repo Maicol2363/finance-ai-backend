@@ -221,6 +221,17 @@
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "rotation_degrees": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotation Degrees"
           }
         },
         "required": [
@@ -237,9 +248,15 @@
             "type": "string"
           },
           "rotation_degrees": {
-            "default": 0,
-            "title": "Rotation Degrees",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotation Degrees"
           }
         },
         "required": [
@@ -260,6 +277,386 @@
           "file"
         ],
         "title": "Body_scan_receipt_api_v1_receipts_scan_post",
+        "type": "object"
+      },
+      "BudgetCategoryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "title": "Color",
+            "type": "string"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "color",
+          "icon"
+        ],
+        "title": "BudgetCategoryResponse",
+        "type": "object"
+      },
+      "BudgetCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "examples": [
+              "0.00"
+            ],
+            "pattern": "^-?\\d{1,16}(?:\\.\\d{1,2})?$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "currency_code": {
+            "maxLength": 10,
+            "minLength": 3,
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetScheduleInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "amount",
+          "currency_code"
+        ],
+        "title": "BudgetCreateRequest",
+        "type": "object"
+      },
+      "BudgetListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "budgets": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetResponse"
+            },
+            "title": "Budgets",
+            "type": "array"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetCategoryResponse"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "suggested_currency_code": {
+            "title": "Suggested Currency Code",
+            "type": "string"
+          },
+          "supported_currencies": {
+            "items": {
+              "$ref": "#/components/schemas/CurrencyResponse"
+            },
+            "title": "Supported Currencies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "budgets",
+          "categories",
+          "supported_currencies",
+          "suggested_currency_code"
+        ],
+        "title": "BudgetListResponse",
+        "type": "object"
+      },
+      "BudgetPeriod": {
+        "enum": [
+          "weekly",
+          "monthly"
+        ],
+        "title": "BudgetPeriod",
+        "type": "string"
+      },
+      "BudgetResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetCategoryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/CurrencyResponse"
+          },
+          "current_period_end": {
+            "format": "date",
+            "title": "Current Period End",
+            "type": "string"
+          },
+          "current_period_start": {
+            "format": "date",
+            "title": "Current Period Start",
+            "type": "string"
+          },
+          "ends_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends On"
+          },
+          "frequency_interval": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frequency Interval"
+          },
+          "frequency_unit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrequencyUnit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "progress_percent": {
+            "title": "Progress Percent",
+            "type": "string"
+          },
+          "remaining_amount": {
+            "title": "Remaining Amount",
+            "type": "string"
+          },
+          "schedule_type": {
+            "$ref": "#/components/schemas/ScheduleType"
+          },
+          "spent_amount": {
+            "title": "Spent Amount",
+            "type": "string"
+          },
+          "starts_on": {
+            "format": "date",
+            "title": "Starts On",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "currency",
+          "amount",
+          "schedule_type",
+          "frequency_unit",
+          "frequency_interval",
+          "starts_on",
+          "ends_on",
+          "current_period_start",
+          "current_period_end",
+          "spent_amount",
+          "remaining_amount",
+          "progress_percent",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "BudgetResponse",
+        "type": "object"
+      },
+      "BudgetScheduleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "ends_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends On"
+          },
+          "frequency_interval": {
+            "anyOf": [
+              {
+                "maximum": 999.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frequency Interval"
+          },
+          "frequency_unit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrequencyUnit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule_type": {
+            "$ref": "#/components/schemas/ScheduleType"
+          },
+          "starts_on": {
+            "format": "date",
+            "title": "Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schedule_type",
+          "starts_on"
+        ],
+        "title": "BudgetScheduleInput",
+        "type": "object"
+      },
+      "BudgetUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "examples": [
+              "0.00"
+            ],
+            "pattern": "^-?\\d{1,16}(?:\\.\\d{1,2})?$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "currency_code": {
+            "maxLength": 10,
+            "minLength": 3,
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "period": {
+            "$ref": "#/components/schemas/BudgetPeriod",
+            "title": "Period"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/BudgetScheduleInput",
+            "title": "Schedule"
+          }
+        },
+        "title": "BudgetUpdateRequest",
         "type": "object"
       },
       "CategoryColor": {
@@ -608,6 +1005,70 @@
         "title": "ExpenseCreateRequest",
         "type": "object"
       },
+      "ExpenseItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/finance_ai__expenses__schemas__CategoryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "amount",
+          "quantity",
+          "unit_price",
+          "note",
+          "category"
+        ],
+        "title": "ExpenseItemResponse",
+        "type": "object"
+      },
       "ExpenseListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -716,6 +1177,13 @@
             ],
             "title": "Image Path"
           },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExpenseItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -769,6 +1237,17 @@
               }
             ],
             "title": "Receipt Note"
+          },
+          "receipt_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Total"
           },
           "status": {
             "title": "Status",
@@ -950,6 +1429,16 @@
         },
         "title": "ExpenseUpdateRequest",
         "type": "object"
+      },
+      "FrequencyUnit": {
+        "enum": [
+          "day",
+          "week",
+          "month",
+          "year"
+        ],
+        "title": "FrequencyUnit",
+        "type": "string"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1857,6 +2346,18 @@
             "title": "Merchant",
             "type": "string"
           },
+          "new_category_name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Category Name"
+          },
           "note": {
             "anyOf": [
               {
@@ -1913,6 +2414,17 @@
             "title": "Currency",
             "type": "string"
           },
+          "duplicate_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Warning"
+          },
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
@@ -1954,6 +2466,11 @@
             ],
             "title": "Payment Method"
           },
+          "possible_duplicate": {
+            "default": false,
+            "title": "Possible Duplicate",
+            "type": "boolean"
+          },
           "proposal_id": {
             "format": "uuid",
             "title": "Proposal Id",
@@ -1986,6 +2503,17 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "suggested_account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Account"
           },
           "suggested_category": {
             "anyOf": [
@@ -2221,6 +2749,14 @@
         ],
         "title": "RenewableCredentialRequest",
         "type": "object"
+      },
+      "ScheduleType": {
+        "enum": [
+          "recurring",
+          "one_time"
+        ],
+        "title": "ScheduleType",
+        "type": "string"
       },
       "TransactionType": {
         "enum": [
@@ -3525,6 +4061,529 @@
         "summary": "Register",
         "tags": [
           "Authentication"
+        ]
+      }
+    },
+    "/api/v1/budgets": {
+      "get": {
+        "operationId": "list_budgets_api_v1_budgets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Budgets",
+        "tags": [
+          "Budgets"
+        ]
+      },
+      "post": {
+        "operationId": "create_budget_api_v1_budgets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create Budget",
+        "tags": [
+          "Budgets"
+        ]
+      }
+    },
+    "/api/v1/budgets/{budget_id}": {
+      "delete": {
+        "operationId": "delete_budget_api_v1_budgets__budget_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "budget_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Budget Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete Budget",
+        "tags": [
+          "Budgets"
+        ]
+      },
+      "get": {
+        "operationId": "get_budget_api_v1_budgets__budget_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "budget_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Budget Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Budget",
+        "tags": [
+          "Budgets"
+        ]
+      },
+      "patch": {
+        "operationId": "update_budget_api_v1_budgets__budget_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "budget_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Budget Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update Budget",
+        "tags": [
+          "Budgets"
         ]
       }
     },
@@ -6042,6 +7101,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Tier-0 Fast Path: DIAN electronic invoice resolution via CUFE",
         "tags": [
           "Receipt Intelligence"
@@ -6052,6 +7116,18 @@
       "post": {
         "description": "Processes uploaded receipt image strictly in-memory and creates a structured draft.",
         "operationId": "create_receipt_proposal_api_v1_receipts_proposal_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "rotation",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Rotation",
+              "type": "integer"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -6195,7 +7271,7 @@
     },
     "/api/v1/receipts/proposal/{proposal_id}/confirm": {
       "post": {
-        "description": "Validates proposal, checks account/currency, and executes atomic 5-table confirmation in PostgreSQL.",
+        "description": "Validates proposal, checks account/currency, and executes confirmation in PostgreSQL.",
         "operationId": "confirm_receipt_proposal_api_v1_receipts_proposal__proposal_id__confirm_post",
         "parameters": [
           {
@@ -6265,6 +7341,16 @@
               "format": "uuid",
               "title": "Proposal Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "rotation",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Rotation",
+              "type": "integer"
             }
           }
         ],
@@ -6347,6 +7433,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Legacy high-speed receipt photo scan",
         "tags": [
           "Receipt Intelligence"
