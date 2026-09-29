@@ -13,6 +13,7 @@ from finance_ai.accounts.schemas import MoneyInput, format_money
 from finance_ai.expenses.repositories import (
     CategoryReference,
     CurrencyReference,
+    ExpenseItemInput,
     ExpenseItemRecord,
     ExpenseRecord,
     HistoryExpenseRecord,
@@ -57,6 +58,7 @@ class ExpenseUpdateCommand:
     account_id: int | None = None
     occurred_at: datetime | None = None
     description: str | None = None
+    items: tuple[ExpenseItemInput, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,48 @@ class ExpenseCreateRequest(BaseModel):
         )
 
 
+class ExpenseItemUpdateRequest(BaseModel):
+    """One line of a receipt expense in an update payload.
+
+    Field limits mirror ``receipts.schemas.ConfirmedReceiptItem`` so capture-time
+    confirmation and post-hoc editing accept the same shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    total_price: Decimal = Field(gt=Decimal("0.00"), le=Decimal("9999999999.99"))
+    quantity: Decimal = Field(default=Decimal("1.0"), gt=Decimal("0.00"), le=Decimal("999999.999"))
+    unit_price: Decimal | None = Field(
+        default=None, ge=Decimal("0.00"), le=Decimal("9999999999.99")
+    )
+    category_id: int | None = Field(default=None, ge=1)
+    note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Item name cannot be empty")
+        return cleaned
+
+    @field_validator("note", mode="after")
+    @classmethod
+    def clean_note(cls, value: str | None) -> str | None:
+        return None if value is None or not value.strip() else value
+
+    def to_input(self) -> ExpenseItemInput:
+        return ExpenseItemInput(
+            name=self.name,
+            total_price=self.total_price,
+            quantity=self.quantity,
+            unit_price=self.unit_price,
+            category_id=self.category_id,
+            note=self.note,
+        )
+
+
 class ExpenseUpdateRequest(BaseModel):
     """Fields that HU-008 allows a user to correct on an existing expense."""
 
@@ -144,6 +188,7 @@ class ExpenseUpdateRequest(BaseModel):
     account_id: int | None = Field(default=None, gt=0)
     occurred_at: datetime | None = None
     description: str | None = Field(default=None, max_length=500)
+    items: list[ExpenseItemUpdateRequest] | None = Field(default=None, max_length=500)
 
     @field_validator("name", "note", "receipt_name", "receipt_note", "description", mode="after")
     @classmethod
@@ -161,7 +206,8 @@ class ExpenseUpdateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_fields(self) -> ExpenseUpdateRequest:
-        if not self.model_fields_set:
+        provided = self.model_fields_set - ({"items"} if self.items is None else set())
+        if not provided:
             raise ValueError("At least one field is required")
         for field in ("name", "amount", "receipt_name", "account_id", "occurred_at"):
             if field in self.model_fields_set and getattr(self, field) is None:
@@ -170,6 +216,9 @@ class ExpenseUpdateRequest(BaseModel):
 
     def to_command(self) -> ExpenseUpdateCommand:
         fields = frozenset(self.model_fields_set)
+        items = self.items
+        # An explicit null means "leave the receipt lines untouched".
+        fields = fields - {"items"} if items is None else fields | {"items"}
         return ExpenseUpdateCommand(
             fields=fields,
             name=self.name if "name" in fields else None,
@@ -181,6 +230,7 @@ class ExpenseUpdateRequest(BaseModel):
             account_id=self.account_id if "account_id" in fields else None,
             occurred_at=self.occurred_at if "occurred_at" in fields else None,
             description=self.description if "description" in fields else None,
+            items=None if items is None else tuple(item.to_input() for item in items),
         )
 
 
@@ -213,6 +263,30 @@ class CategoryResponse(BaseModel):
         return None if category is None else cls(id=category.id, name=category.name)
 
 
+class ExpenseItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    name: str
+    amount: str
+    quantity: str
+    unit_price: str | None
+    note: str | None
+    category: CategoryResponse | None
+
+    @classmethod
+    def from_record(cls, item: ExpenseItemRecord) -> ExpenseItemResponse:
+        return cls(
+            id=item.id,
+            name=item.name,
+            amount=format_money(item.amount),
+            quantity=format(item.quantity, ".3f"),
+            unit_price=None if item.unit_price is None else format_money(item.unit_price),
+            note=item.note,
+            category=CategoryResponse.from_record(item.category),
+        )
+
+
 class ExpenseResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -241,6 +315,8 @@ class ExpenseResponse(BaseModel):
     updated_at: datetime
     receipt_image: str | None
     image_path: str | None
+    receipt_total: str | None = None
+    items: list[ExpenseItemResponse] = Field(default_factory=list)
 
     @classmethod
     def from_record(cls, item: ExpenseRecord) -> ExpenseResponse:
@@ -270,6 +346,10 @@ class ExpenseResponse(BaseModel):
             updated_at=item.updated_at,
             receipt_image=item.receipt_image,
             image_path=item.image_path,
+            receipt_total=format_money(item.receipt_total)
+            if item.receipt_total is not None
+            else None,
+            items=[ExpenseItemResponse.from_record(sub) for sub in item.items],
         )
 
 

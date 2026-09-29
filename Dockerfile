@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
 
-FROM python:3.14.7-slim-bookworm AS runtime
+FROM python:3.14.7-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -25,16 +25,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev \
     && chown -R finance-ai:finance-ai /app
 
-USER finance-ai
-
-EXPOSE 8000
-
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
-
-CMD ["uvicorn", "finance_ai.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-FROM runtime AS test
+FROM base AS test
 
 USER root
 
@@ -46,3 +37,14 @@ RUN uv sync --frozen --all-groups \
 USER finance-ai
 
 CMD ["pytest"]
+
+FROM base AS runtime
+
+USER finance-ai
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
+
+CMD ["uvicorn", "finance_ai.main:app", "--host", "0.0.0.0", "--port", "8000"]

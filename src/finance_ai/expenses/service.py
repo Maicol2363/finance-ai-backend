@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
+from finance_ai.categories.schemas import CategoryColor, CategoryIcon
 from finance_ai.core.errors import (
     ExpenseAccountInvalidError,
     ExpenseCategoryNotFoundError,
@@ -23,10 +25,15 @@ from finance_ai.expenses.schemas import (
     HistoryResult,
 )
 from finance_ai.expenses.uow import ExpenseUnitOfWork
+from finance_ai.receipts.schemas import ReceiptProposalConfirmRequest
 
 ExpenseUnitOfWorkFactory = Callable[[], ExpenseUnitOfWork]
 # receipt.total and expense.amount are NUMERIC(12, 2) in the persisted schema.
 MONEY_MAX = Decimal("9999999999.99")
+# Proposal states a client may confirm. `failed_extraction` drafts are recoverable: when every
+# provider attempt fails the user completes the required fields by hand (HU-015 provider-failure
+# recovery), so the confirmation payload - not the extraction - is the source of truth.
+CONFIRMABLE_PROPOSAL_STATUSES = frozenset({"complete", "partial", "failed_extraction"})
 
 
 class ExpenseService:
@@ -71,6 +78,144 @@ class ExpenseService:
             uow.commit()
             return created
 
+    def confirm_receipt_proposal(
+        self,
+        *,
+        owner_id: int,
+        proposal_id: UUID,
+        command: ReceiptProposalConfirmRequest,
+    ) -> tuple[ExpenseRecord, bool]:
+        """Validates proposal state, verifies account/currency, and executes atomic confirmation.
+
+        Returns:
+            A tuple of (ExpenseRecord, is_new), where is_new is False if the request was an
+            idempotent replay of an already confirmed proposal.
+        """
+        if command.total_amount <= Decimal("0") or command.total_amount > MONEY_MAX:
+            raise RequestInvalidError(
+                {"total_amount": [f"Total amount must be between 0.01 and {MONEY_MAX}."]}
+            )
+        if not command.merchant.strip():
+            raise RequestInvalidError({"merchant": ["Merchant cannot be empty."]})
+
+        with self.uow_factory() as uow:
+            # 1. Pessimistic lock on proposal to cleanly serialize concurrent confirmations
+            proposal = uow.proposals.get_by_id_for_user(owner_id, proposal_id, for_update=True)
+            if proposal is None:
+                raise ExpenseNotFoundError
+
+            # 2. Idempotency replay check
+            if proposal.status == "confirmed":
+                tx_id = proposal.proposal_data.get("transaction_id")
+                if tx_id is not None:
+                    existing = uow.expenses.find_by_transaction_id(
+                        owner_id=owner_id, transaction_id=int(tx_id)
+                    )
+                    if existing is not None:
+                        return existing, False
+
+            # 3. State validations
+            if proposal.status == "discarded":
+                raise RequestInvalidError(
+                    {"proposal": ["This receipt proposal was previously discarded."]}
+                )
+            if proposal.status == "not_a_receipt":
+                raise RequestInvalidError(
+                    {
+                        "proposal": [
+                            "This image was classified as not a receipt and cannot be confirmed."
+                        ]
+                    }
+                )
+            if proposal.status not in CONFIRMABLE_PROPOSAL_STATUSES:
+                raise RequestInvalidError(
+                    {"proposal": [f"Cannot confirm proposal with status '{proposal.status}'."]}
+                )
+
+            # 4. Expiration check
+            now_utc = datetime.now(UTC)
+            expires_at = proposal.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if now_utc > expires_at:
+                raise RequestInvalidError(
+                    {
+                        "proposal": [
+                            "The receipt proposal has expired. Please scan the receipt again."
+                        ]
+                    }
+                )
+
+            # 5. Account and currency verification
+            account_currency = uow.expenses.active_account_currency(
+                owner_id=owner_id, account_id=command.account_id
+            )
+            if (
+                account_currency is None
+                or account_currency.code.upper() != command.currency.upper()
+            ):
+                raise ExpenseAccountInvalidError
+
+            # 6. Category verification & JIT creation
+            category_id = command.category_id
+            if category_id is None and command.new_category_name:
+                cleaned_name = command.new_category_name.strip()
+                if cleaned_name and hasattr(uow, "categories"):
+                    existing_cats = uow.categories.list_owned(owner_id=owner_id)
+                    matched_cat = next(
+                        (
+                            c
+                            for c in existing_cats
+                            if c.name.strip().lower() == cleaned_name.lower()
+                        ),
+                        None,
+                    )
+                    if matched_cat is not None:
+                        category_id = matched_cat.id
+                    else:
+                        category_id = uow.categories.add(
+                            owner_id=owner_id,
+                            name=cleaned_name,
+                            color=CategoryColor.BLUE,
+                            icon=CategoryIcon.OTHER,
+                            sort_order=len(existing_cats),
+                        )
+                        uow.flush()
+
+            if category_id is not None and not uow.expenses.category_owned(
+                owner_id=owner_id, category_id=category_id
+            ):
+                raise ExpenseCategoryNotFoundError
+
+            for item in command.items:
+                if item.category_id is not None and not uow.expenses.category_owned(
+                    owner_id=owner_id, category_id=item.category_id
+                ):
+                    raise ExpenseCategoryNotFoundError
+
+            # 7. Relational multi-entity persistence
+            created = uow.expenses.create_from_receipt_proposal(
+                owner_id=owner_id,
+                account_id=command.account_id,
+                total_amount=command.total_amount,
+                merchant=command.merchant.strip(),
+                occurred_at=command.occurred_at,
+                category_id=category_id,
+                items=command.items,
+                note=command.note,
+            )
+
+            # 8. Mark proposal confirmed with transaction_id
+            uow.proposals.mark_confirmed(
+                user_id=owner_id,
+                proposal_id=proposal_id,
+                transaction_id=created.transaction_id,
+            )
+
+            uow.flush()
+            uow.commit()
+            return created, True
+
     def list(self, *, owner_id: int, page: int, page_size: int) -> ExpenseListResult:
         if page < 1 or page_size < 1 or page_size > 100:
             raise HistoryFilterInvalidError(
@@ -93,6 +238,22 @@ class ExpenseService:
             raise ExpenseNotFoundError
         return expense
 
+    def find_potential_duplicate(
+        self,
+        *,
+        owner_id: int,
+        merchant: str,
+        total_amount: Decimal,
+        occurred_date: date,
+    ) -> bool:
+        with self.uow_factory() as uow:
+            return uow.expenses.find_potential_duplicate(
+                owner_id=owner_id,
+                merchant=merchant,
+                total_amount=total_amount,
+                occurred_date=occurred_date,
+            )
+
     def update(
         self,
         *,
@@ -101,6 +262,7 @@ class ExpenseService:
         command: ExpenseUpdateCommand,
     ) -> ExpenseRecord:
         self._validate_command(command)
+        items_provided = "items" in command.fields
         with self.uow_factory() as uow:
             current = uow.expenses.find_owned(
                 owner_id=owner_id,
@@ -118,23 +280,41 @@ class ExpenseService:
             ):
                 raise ExpenseCategoryNotFoundError
 
+            if items_provided:
+                for item_category_id in {
+                    item.category_id for item in command.items or () if item.category_id is not None
+                }:
+                    if not uow.expenses.category_owned(
+                        owner_id=owner_id, category_id=item_category_id
+                    ):
+                        raise ExpenseCategoryNotFoundError
+
             account_id = current.account_id
             if "account_id" in command.fields:
                 assert command.account_id is not None
                 account_id = command.account_id
-            if "account_id" in command.fields or "amount" in command.fields:
+            if "account_id" in command.fields or (
+                "amount" in command.fields and not items_provided
+            ):
                 currency = uow.expenses.active_account_currency(
                     owner_id=owner_id, account_id=account_id
                 )
                 if currency is None or currency.code != current.currency.code:
                     raise ExpenseAccountInvalidError
 
+            # An submitted item list replaces the receipt's lines, and those lines
+            # define the official total: the amount is not applied separately.
+            applied_fields = (
+                frozenset(field for field in command.fields if field not in {"items", "amount"})
+                if items_provided
+                else command.fields
+            )
             uow.expenses.update(
                 owner_id=owner_id,
                 expense_id=expense_id,
-                fields=command.fields,
+                fields=applied_fields,
                 name=command.name,
-                amount=command.amount,
+                amount=None if items_provided else command.amount,
                 note=command.note,
                 receipt_name=command.receipt_name,
                 receipt_note=command.receipt_note,
@@ -143,6 +323,13 @@ class ExpenseService:
                 occurred_at=command.occurred_at,
                 description=command.description,
             )
+            if items_provided:
+                uow.expenses.replace_items(
+                    owner_id=owner_id,
+                    expense_id=expense_id,
+                    items=command.items or (),
+                    fallback_amount=command.amount,
+                )
             uow.flush()
             updated = uow.expenses.find_owned(owner_id=owner_id, expense_id=expense_id)
             if updated is None:
