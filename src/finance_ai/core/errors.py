@@ -406,6 +406,52 @@ class IncomeSourceUnavailableError(AppError):
         )
 
 
+class TransferAccountUnavailableError(AppError):
+    def __init__(self, field: str) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_account_unavailable",
+            title="Account is unavailable",
+            detail="Choose one of your active accounts.",
+            field_errors={field: ["Choose one of your active accounts."]},
+        )
+
+
+class TransferSameAccountError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_same_account",
+            title="Accounts must differ",
+            detail="Choose two different accounts for the transfer.",
+            field_errors={
+                "destination_account_id": ["Choose a different account from the source."]
+            },
+        )
+
+
+class TransferDestinationAmountRequiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_destination_amount_required",
+            title="Destination amount is required",
+            detail="Declare the amount arriving in the destination currency.",
+            field_errors={"destination_amount": ["Declare the arriving destination amount."]},
+        )
+
+
+class TransferSourceDestinationMismatchError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_source_destination_mismatch",
+            title="Transfer amounts must match",
+            detail="Same-currency transfers move the same amount on both sides.",
+            field_errors={"destination_amount": ["Use the same amount as the source."]},
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 

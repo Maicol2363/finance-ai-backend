@@ -2853,6 +2853,156 @@
         "title": "TransactionType",
         "type": "string"
       },
+      "TransferAccountResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "currency_code": {
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "currency_code"
+        ],
+        "title": "TransferAccountResponse",
+        "type": "object"
+      },
+      "TransferCreateRequest": {
+        "additionalProperties": false,
+        "description": "Manual transfer between two owned accounts.\n\nBoth amounts are stored explicitly so cross-currency transfers never\ndepend on external rates: the user declares what left and what arrived.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "destination_account_id": {
+            "exclusiveMinimum": 0.0,
+            "title": "Destination Account Id",
+            "type": "integer"
+          },
+          "destination_amount": {
+            "anyOf": [
+              {
+                "examples": [
+                  "100.00"
+                ],
+                "pattern": "^(?=.*[1-9])\\d{1,16}(?:\\.\\d{1,2})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination Amount"
+          },
+          "source_account_id": {
+            "exclusiveMinimum": 0.0,
+            "title": "Source Account Id",
+            "type": "integer"
+          },
+          "source_amount": {
+            "examples": [
+              "100.00"
+            ],
+            "pattern": "^(?=.*[1-9])\\d{1,16}(?:\\.\\d{1,2})?$",
+            "title": "Source Amount",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_account_id",
+          "destination_account_id",
+          "source_amount",
+          "date"
+        ],
+        "title": "TransferCreateRequest",
+        "type": "object"
+      },
+      "TransferResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "destination_account": {
+            "$ref": "#/components/schemas/TransferAccountResponse"
+          },
+          "destination_amount": {
+            "title": "Destination Amount",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "source_account": {
+            "$ref": "#/components/schemas/TransferAccountResponse"
+          },
+          "source_amount": {
+            "title": "Source Amount",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_account",
+          "source_amount",
+          "destination_account",
+          "destination_amount",
+          "date",
+          "description",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TransferResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -7478,6 +7628,112 @@
         "summary": "Legacy high-speed receipt photo scan",
         "tags": [
           "Receipt Intelligence"
+        ]
+      }
+    },
+    "/api/v1/transfers": {
+      "post": {
+        "operationId": "create_transfer_api_v1_transfers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create Transfer",
+        "tags": [
+          "Transfers"
         ]
       }
     },
