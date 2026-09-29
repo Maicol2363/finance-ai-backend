@@ -61,4 +61,4 @@ jobs:
       - name: Build source and wheel distributions
         run: uv build
       - name: Audit locked dependencies
-        run: uv run pip-audit
+        run: uv run pip-audit --skip-editable
