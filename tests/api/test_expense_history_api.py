@@ -234,6 +234,41 @@ def test_history_passes_combined_filters_and_preserves_currency(
     assert kwargs["page_size"] == 10
 
 
+def test_history_forwards_store_source_and_receipt_kind_filters(
+    expense_client: tuple[TestClient, StubExpenseService],
+) -> None:
+    client, service = expense_client
+
+    response = client.get(
+        "/api/v1/history",
+        params={
+            "store": " Supermarket ",
+            "capture_source": "ai",
+            "receipt_kind": "multi",
+        },
+    )
+
+    assert response.status_code == 200
+    kwargs = service.calls[0][1]
+    assert kwargs["store"] == " Supermarket "
+    assert kwargs["capture_source"] == "ai"
+    assert kwargs["receipt_kind"] == "multi"
+
+
+def test_history_rejects_unsupported_store_source_and_receipt_filters(
+    expense_client: tuple[TestClient, StubExpenseService],
+) -> None:
+    client, _ = expense_client
+
+    unknown_source = client.get("/api/v1/history", params={"capture_source": "photo"})
+    unknown_kind = client.get("/api/v1/history", params={"receipt_kind": "many"})
+    too_long_store = client.get("/api/v1/history", params={"store": "x" * 121})
+
+    assert unknown_source.status_code == 422
+    assert unknown_kind.status_code == 422
+    assert too_long_store.status_code == 422
+
+
 def test_invalid_patch_and_missing_expense_use_safe_contract(
     expense_client: tuple[TestClient, StubExpenseService],
 ) -> None:

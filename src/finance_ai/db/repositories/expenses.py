@@ -853,6 +853,35 @@ class SQLAlchemyExpenseRepository:
                     )
                 )
             )
+        if filters.capture_sources:
+            statement = statement.where(
+                FinancialTransaction.capture_source.in_(filters.capture_sources)
+            )
+        if filters.store is not None:
+            store_pattern = self._search_pattern(filters.store)
+            statement = statement.where(
+                exists(
+                    select(Receipt.id).where(
+                        Receipt.transaction_id == FinancialTransaction.id,
+                        Receipt.user_id == owner_id,
+                        func.lower(Receipt.store).like(store_pattern, escape="\\"),
+                    )
+                )
+            )
+        if filters.receipt_kind is not None:
+            line_count = (
+                select(func.count(Expense.id))
+                .join(Receipt, Receipt.id == Expense.receipt_id)
+                .where(
+                    Receipt.transaction_id == FinancialTransaction.id,
+                    Expense.user_id == owner_id,
+                    Receipt.user_id == owner_id,
+                )
+                .scalar_subquery()
+            )
+            statement = statement.where(
+                line_count > 1 if filters.receipt_kind == "multi" else line_count == 1
+            )
         if filters.search is not None:
             pattern = self._search_pattern(filters.search)
             statement = statement.where(

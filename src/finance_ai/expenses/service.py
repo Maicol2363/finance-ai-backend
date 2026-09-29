@@ -34,6 +34,14 @@ MONEY_MAX = Decimal("9999999999.99")
 # provider attempt fails the user completes the required fields by hand (HU-015 provider-failure
 # recovery), so the confirmation payload - not the extraction - is the source of truth.
 CONFIRMABLE_PROPOSAL_STATUSES = frozenset({"complete", "partial", "failed_extraction"})
+# Stored `financial_transaction.capture_source` values behind each filter group the
+# app offers: the three AI capture paths collapse into `ai` (see `CaptureSource`
+# in the Flutter client), so one chip can select all of them.
+CAPTURE_SOURCE_GROUPS: dict[str, tuple[str, ...]] = {
+    "ai": ("ai", "text_ai", "audio_ai", "receipt_photo_ai"),
+    "manual": ("manual",),
+    "import": ("import",),
+}
 
 
 class ExpenseService:
@@ -362,6 +370,9 @@ class ExpenseService:
         end_date: date | None,
         page: int,
         page_size: int,
+        store: str | None = None,
+        capture_source: str | None = None,
+        receipt_kind: str | None = None,
     ) -> HistoryResult:
         if page < 1 or page_size < 1 or page_size > 100:
             raise HistoryFilterInvalidError(
@@ -381,6 +392,23 @@ class ExpenseService:
             raise HistoryFilterInvalidError(
                 {"transaction_type": ["Transaction type is unsupported."]}
             )
+        if capture_source is not None and capture_source not in CAPTURE_SOURCE_GROUPS:
+            raise HistoryFilterInvalidError(
+                {
+                    "capture_source": [
+                        "Capture source must be one of: "
+                        f"{', '.join(sorted(CAPTURE_SOURCE_GROUPS))}."
+                    ]
+                }
+            )
+        if receipt_kind is not None and receipt_kind not in {"single", "multi"}:
+            raise HistoryFilterInvalidError(
+                {"receipt_kind": ["Receipt kind must be 'single' or 'multi'."]}
+            )
+        resolved_store = None if store is None or not store.strip() else store.strip()
+        resolved_capture_sources: tuple[str, ...] = ()
+        if capture_source is not None:
+            resolved_capture_sources = CAPTURE_SOURCE_GROUPS.get(capture_source, ())
 
         resolved_start, resolved_end = self._resolve_period_dates(
             period=period,
@@ -394,6 +422,9 @@ class ExpenseService:
             account_id=account_id,
             start_date=resolved_start,
             end_date=resolved_end,
+            store=resolved_store,
+            capture_sources=resolved_capture_sources,
+            receipt_kind=receipt_kind,
             offset=(page - 1) * page_size,
             limit=page_size,
         )

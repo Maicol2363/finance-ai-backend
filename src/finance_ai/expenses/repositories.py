@@ -121,6 +121,12 @@ class HistoryFilters:
     account_id: int | None = None
     start_date: date | None = None
     end_date: date | None = None
+    # Merchant filter, matched against `receipt.store`.
+    store: str | None = None
+    # Stored capture sources to accept (`ai` expands to the three AI paths).
+    capture_sources: tuple[str, ...] = ()
+    # `single` = receipts with one expense line, `multi` = several lines.
+    receipt_kind: str | None = None
     offset: int = 0
     limit: int = 50
 

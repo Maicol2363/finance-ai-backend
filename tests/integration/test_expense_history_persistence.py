@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -54,7 +55,16 @@ def migrated_database() -> None:
 
 
 @pytest.fixture(autouse=True)
-def clean_data(migrated_database: None) -> None:
+def clean_data(migrated_database: None) -> Iterator[None]:
+    truncate_users()
+    yield
+    # Leave no rows behind: the next module rebuilds the schema with
+    # `downgrade base`, and revision 0012 cannot represent the AI capture
+    # sources this module creates.
+    truncate_users()
+
+
+def truncate_users() -> None:
     with get_session_factory()() as session:
         session.execute(text("TRUNCATE TABLE app_user RESTART IDENTITY CASCADE"))
         session.commit()
@@ -125,6 +135,7 @@ def create_expense(
     occurred_at: datetime = NOW,
     status: str = "confirmed",
     store: str = "Market",
+    capture_source: str = "manual",
 ) -> tuple[int, int, int]:
     with get_session_factory()() as session:
         currency_id = session.scalar(select(Currency.id).where(Currency.code == "COP"))
@@ -138,7 +149,7 @@ def create_expense(
             status=status,
             occurred_at=occurred_at,
             description=f"Purchase at {store}",
-            capture_source="manual",
+            capture_source=capture_source,
         )
         session.add(transaction)
         session.flush()
@@ -180,6 +191,36 @@ def create_expense(
         )
         session.commit()
         return expense.id, receipt.id, transaction.id
+
+
+def add_expense_line(
+    *,
+    user_id: int,
+    receipt_id: int,
+    amount: str = "5.00",
+    name: str = "Second line",
+) -> int:
+    """Append a second line to an existing receipt (turns it into a `multi` one)."""
+    with get_session_factory()() as session:
+        receipt = session.get(Receipt, receipt_id)
+        assert receipt is not None
+        value = Decimal(amount)
+        expense = Expense(
+            user_id=user_id,
+            receipt_id=receipt_id,
+            category_id=receipt.category_id,
+            subcategory_id=None,
+            position=2,
+            name=name,
+            quantity=Decimal("1"),
+            unit_price=value,
+            amount=value,
+            note=None,
+            image_path=None,
+        )
+        session.add(expense)
+        session.commit()
+        return expense.id
 
 
 def create_history_transaction(
@@ -514,3 +555,75 @@ def test_history_supports_types_filters_search_currency_and_pagination(client: T
     assert expense_details["items"][0]["image_path"] == "expense.jpg"
     assert account.status_code == 200
     assert account.json()["total"] == 3
+
+
+def test_history_supports_store_capture_source_and_receipt_kind_filters(
+    client: TestClient,
+) -> None:
+    owner_id = create_user(email="owner@example.com")
+    account_id = create_account(user_id=owner_id)
+    category_id = create_category(user_id=owner_id)
+    _, _, manual_tx = create_expense(
+        user_id=owner_id,
+        account_id=account_id,
+        category_id=category_id,
+        occurred_at=datetime(2026, 9, 10, 9, tzinfo=UTC),
+        store="Exito",
+        capture_source="manual",
+    )
+    _, _, photo_single_tx = create_expense(
+        user_id=owner_id,
+        account_id=account_id,
+        category_id=category_id,
+        occurred_at=datetime(2026, 9, 11, 9, tzinfo=UTC),
+        store="D1",
+        capture_source="receipt_photo_ai",
+    )
+    _, multi_receipt_id, photo_multi_tx = create_expense(
+        user_id=owner_id,
+        account_id=account_id,
+        category_id=category_id,
+        occurred_at=datetime(2026, 9, 12, 9, tzinfo=UTC),
+        store="D1",
+        capture_source="text_ai",
+    )
+    add_expense_line(user_id=owner_id, receipt_id=multi_receipt_id)
+
+    by_store = client.get("/api/v1/history", params={"store": "d1"})
+    ai_only = client.get("/api/v1/history", params={"capture_source": "ai"})
+    manual_only = client.get("/api/v1/history", params={"capture_source": "manual"})
+    multi_only = client.get("/api/v1/history", params={"receipt_kind": "multi"})
+    single_only = client.get("/api/v1/history", params={"receipt_kind": "single"})
+    combined = client.get(
+        "/api/v1/history",
+        params={"capture_source": "ai", "store": "d1", "receipt_kind": "multi"},
+    )
+
+    assert by_store.status_code == 200
+    # `store` matches the merchant case-insensitively.
+    assert by_store.json()["total"] == 2
+    assert [item["id"] for item in by_store.json()["items"]] == [
+        photo_multi_tx,
+        photo_single_tx,
+    ]
+
+    # `ai` groups the three AI capture paths; manual stays separate.
+    assert ai_only.json()["total"] == 2
+    assert {item["id"] for item in ai_only.json()["items"]} == {
+        photo_single_tx,
+        photo_multi_tx,
+    }
+    assert manual_only.json()["total"] == 1
+    assert manual_only.json()["items"][0]["id"] == manual_tx
+
+    # `receipt_kind` looks at the number of expense lines behind the receipt.
+    assert multi_only.json()["total"] == 1
+    assert multi_only.json()["items"][0]["id"] == photo_multi_tx
+    assert single_only.json()["total"] == 2
+    assert {item["id"] for item in single_only.json()["items"]} == {
+        manual_tx,
+        photo_single_tx,
+    }
+
+    assert combined.json()["total"] == 1
+    assert combined.json()["items"][0]["id"] == photo_multi_tx

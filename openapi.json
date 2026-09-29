@@ -659,6 +659,16 @@
         "title": "BudgetUpdateRequest",
         "type": "object"
       },
+      "CaptureSource": {
+        "description": "Capture-source groups accepted by the history filters.\n\nThe three AI capture paths (`ai`, `text_ai`, `audio_ai`,\n`receipt_photo_ai`) are stored separately but selected as one group.",
+        "enum": [
+          "ai",
+          "manual",
+          "import"
+        ],
+        "title": "CaptureSource",
+        "type": "string"
+      },
       "CategoryColor": {
         "enum": [
           "blue",
@@ -2390,6 +2400,15 @@
         ],
         "title": "ReceiptItem",
         "type": "object"
+      },
+      "ReceiptKind": {
+        "description": "Shape of a receipt entry: one expense line or several.",
+        "enum": [
+          "single",
+          "multi"
+        ],
+        "title": "ReceiptKind",
+        "type": "string"
       },
       "ReceiptProposalConfirmRequest": {
         "additionalProperties": false,
@@ -6250,6 +6269,55 @@
                 }
               ],
               "title": "End Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "store",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Store"
+            }
+          },
+          {
+            "in": "query",
+            "name": "capture_source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CaptureSource"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Capture Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "receipt_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReceiptKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Receipt Kind"
             }
           },
           {

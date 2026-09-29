@@ -13,12 +13,14 @@ from finance_ai.auth.session_service import SessionService
 from finance_ai.core.errors import ProblemResponse
 from finance_ai.expenses.dependencies import get_expense_service
 from finance_ai.expenses.schemas import (
+    CaptureSource,
     ExpenseCreateRequest,
     ExpenseListResponse,
     ExpenseResponse,
     ExpenseUpdateRequest,
     HistoryPeriod,
     HistoryResponse,
+    ReceiptKind,
     TransactionType,
 )
 from finance_ai.expenses.service import ExpenseService
@@ -149,6 +151,9 @@ def get_history(
     period: Annotated[HistoryPeriod | None, Query()] = None,
     start_date: Annotated[date | None, Query()] = None,
     end_date: Annotated[date | None, Query()] = None,
+    store: Annotated[str | None, Query(max_length=120)] = None,
+    capture_source: Annotated[CaptureSource | None, Query()] = None,
+    receipt_kind: Annotated[ReceiptKind | None, Query()] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> HistoryResponse:
@@ -164,5 +169,8 @@ def get_history(
         end_date=end_date,
         page=page,
         page_size=page_size,
+        store=store,
+        capture_source=None if capture_source is None else capture_source.value,
+        receipt_kind=None if receipt_kind is None else receipt_kind.value,
     )
     return HistoryResponse.from_result(result)

@@ -36,6 +36,25 @@ class HistoryPeriod(StrEnum):
     CUSTOM = "custom"
 
 
+class CaptureSource(StrEnum):
+    """Capture-source groups accepted by the history filters.
+
+    The three AI capture paths (`ai`, `text_ai`, `audio_ai`,
+    `receipt_photo_ai`) are stored separately but selected as one group.
+    """
+
+    AI = "ai"
+    MANUAL = "manual"
+    IMPORTED = "import"
+
+
+class ReceiptKind(StrEnum):
+    """Shape of a receipt entry: one expense line or several."""
+
+    SINGLE = "single"
+    MULTI = "multi"
+
+
 @dataclass(frozen=True)
 class CreateExpenseCommand:
     account_id: int

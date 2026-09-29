@@ -144,6 +144,14 @@ def downgrade() -> None:
     op.drop_index("ix_budget_user_active", table_name="budget")
     op.drop_table("budget")
 
+    # The narrower constraint below cannot represent the AI capture paths this
+    # revision introduced, so normalise them back to `ai` first: without this the
+    # downgrade fails on any database that already stored a photo/text/audio
+    # capture.
+    op.execute(
+        "UPDATE financial_transaction SET capture_source = 'ai' "
+        "WHERE capture_source IN ('text_ai', 'audio_ai', 'receipt_photo_ai')"
+    )
     op.drop_constraint("capture_source_supported", "financial_transaction", type_="check")
     op.create_check_constraint(
         "capture_source_supported",
