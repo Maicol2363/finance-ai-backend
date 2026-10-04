@@ -119,11 +119,11 @@ class DashboardRepository:
             WITH bounds AS (
               SELECT gs::date AS wk_start
               FROM generate_series(
-                date_trunc('week', :start::date), :end::date, interval '7 days'
+                date_trunc('week', CAST(:start AS date)), CAST(:end AS date), interval '7 days'
               ) gs
             ), weeks AS (
-              SELECT GREATEST(wk_start, :start::date) AS w_start,
-                     LEAST(wk_start + 6, :end::date) AS w_end
+              SELECT GREATEST(wk_start, CAST(:start AS date)) AS w_start,
+                     LEAST(wk_start + 6, CAST(:end AS date)) AS w_end
               FROM bounds
             ), spend AS (
               SELECT (ft.occurred_at AT TIME ZONE :tz)::date AS day,
@@ -299,8 +299,8 @@ class DashboardRepository:
             ), monthly AS (
               SELECT date_trunc('month', day) AS m, SUM(amount) AS spent
               FROM spend
-              WHERE day >= (date_trunc('month', :today::date) - interval '3 months')::date
-                AND day < date_trunc('month', :today::date)::date
+              WHERE day >= (date_trunc('month', CAST(:today AS date)) - interval '3 months')::date
+                AND day < date_trunc('month', CAST(:today AS date))::date
               GROUP BY 1
             )
             SELECT
@@ -330,8 +330,8 @@ class DashboardRepository:
             """
             WITH months AS (
               SELECT generate_series(
-                date_trunc('month', :today::date) - interval '6 months',
-                date_trunc('month', :today::date) - interval '1 month',
+                date_trunc('month', CAST(:today AS date)) - interval '6 months',
+                date_trunc('month', CAST(:today AS date)) - interval '1 month',
                 interval '1 month'
               )::date AS m
             ), inc AS (
@@ -340,13 +340,13 @@ class DashboardRepository:
               JOIN currency c ON c.id = i.currency_id
               WHERE i.user_id = :user_id
                 AND c.code = :currency
-                AND i.date >= (date_trunc('month', :today::date) - interval '6 months')::date
-                AND i.date < date_trunc('month', :today::date)::date
+                AND i.date >= (date_trunc('month', CAST(:today AS date)) - interval '6 months')::date
+                AND i.date < date_trunc('month', CAST(:today AS date))::date
               GROUP BY 1
             )
             SELECT
               COALESCE(AVG(COALESCE(inc.total, 0)) FILTER (
-                WHERE months.m >= date_trunc('month', :today::date) - interval '3 months'
+                WHERE months.m >= date_trunc('month', CAST(:today AS date)) - interval '3 months'
               ), 0) AS avg_3m,
               COALESCE(AVG(COALESCE(inc.total, 0)), 0) AS avg_6m,
               STDDEV_POP(COALESCE(inc.total, 0)) AS stddev,
@@ -378,7 +378,7 @@ class DashboardRepository:
             """
             WITH days AS (
               SELECT d::date AS day
-              FROM generate_series(:today::date - 89, :today::date, interval '1 day') d
+              FROM generate_series(CAST(:today AS date) - 89, CAST(:today AS date), interval '1 day') d
             ), spend AS (
               SELECT (ft.occurred_at AT TIME ZONE :tz)::date AS day,
                      -am.amount AS amount
