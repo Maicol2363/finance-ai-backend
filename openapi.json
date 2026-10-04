@@ -215,6 +215,36 @@
         "title": "AuthenticatedUserResponse",
         "type": "object"
       },
+      "BalanceSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_monthly_spend": {
+            "title": "Avg Monthly Spend",
+            "type": "string"
+          },
+          "runway_months": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runway Months"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "total",
+          "avg_monthly_spend"
+        ],
+        "title": "BalanceSummary",
+        "type": "object"
+      },
       "Body_create_receipt_proposal_api_v1_receipts_proposal_post": {
         "properties": {
           "file": {
@@ -799,6 +829,53 @@
         "title": "CategoryUpdateRequest",
         "type": "object"
       },
+      "ComparisonSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          },
+          "previous": {
+            "title": "Previous",
+            "type": "string"
+          },
+          "previous_end": {
+            "format": "date",
+            "title": "Previous End",
+            "type": "string"
+          },
+          "previous_start": {
+            "format": "date",
+            "title": "Previous Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current",
+          "previous",
+          "previous_start",
+          "previous_end",
+          "direction"
+        ],
+        "title": "ComparisonSummary",
+        "type": "object"
+      },
       "ConfirmedReceiptItem": {
         "additionalProperties": false,
         "description": "User-confirmed line item for multi-item persistence in PostgreSQL.",
@@ -928,6 +1005,75 @@
           "decimals"
         ],
         "title": "CurrencyResponse",
+        "type": "object"
+      },
+      "DashboardSummaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/BalanceSummary"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/ComparisonSummary"
+          },
+          "flow": {
+            "$ref": "#/components/schemas/FlowSummary"
+          },
+          "income_average": {
+            "$ref": "#/components/schemas/IncomeAverageSummary"
+          },
+          "period": {
+            "$ref": "#/components/schemas/PeriodSummary"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ProjectionSummary"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/RecentMovementItem"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "recurring_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/RecurringCandidate"
+            },
+            "title": "Recurring Candidates",
+            "type": "array"
+          },
+          "top_categories": {
+            "items": {
+              "$ref": "#/components/schemas/TopCategoryItem"
+            },
+            "title": "Top Categories",
+            "type": "array"
+          },
+          "weekday_pattern": {
+            "$ref": "#/components/schemas/WeekdayPattern"
+          },
+          "weekly": {
+            "items": {
+              "$ref": "#/components/schemas/WeeklySpendItem"
+            },
+            "title": "Weekly",
+            "type": "array"
+          }
+        },
+        "required": [
+          "period",
+          "flow",
+          "comparison",
+          "weekly",
+          "top_categories",
+          "projection",
+          "balance",
+          "income_average",
+          "weekday_pattern",
+          "recurring_candidates",
+          "recent"
+        ],
+        "title": "DashboardSummaryResponse",
         "type": "object"
       },
       "ExpenseCreateRequest": {
@@ -1526,6 +1672,30 @@
         "title": "ExpenseUpdateRequest",
         "type": "object"
       },
+      "FlowSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "expenses": {
+            "title": "Expenses",
+            "type": "string"
+          },
+          "incomes": {
+            "title": "Incomes",
+            "type": "string"
+          },
+          "net": {
+            "title": "Net",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incomes",
+          "expenses",
+          "net"
+        ],
+        "title": "FlowSummary",
+        "type": "object"
+      },
       "FrequencyUnit": {
         "enum": [
           "day",
@@ -1905,6 +2075,36 @@
         "title": "ImageOptimizationMeta",
         "type": "object"
       },
+      "IncomeAverageSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_3m": {
+            "title": "Avg 3M",
+            "type": "string"
+          },
+          "avg_6m": {
+            "title": "Avg 6M",
+            "type": "string"
+          },
+          "variability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variability"
+          }
+        },
+        "required": [
+          "avg_3m",
+          "avg_6m"
+        ],
+        "title": "IncomeAverageSummary",
+        "type": "object"
+      },
       "IncomeListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2181,6 +2381,48 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "PeriodSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "days_elapsed": {
+            "title": "Days Elapsed",
+            "type": "integer"
+          },
+          "days_total": {
+            "title": "Days Total",
+            "type": "integer"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "today": {
+            "format": "date",
+            "title": "Today",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "today",
+          "is_current",
+          "days_elapsed",
+          "days_total"
+        ],
+        "title": "PeriodSummary",
+        "type": "object"
+      },
       "ProblemResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2235,6 +2477,25 @@
           "correlation_id"
         ],
         "title": "ProblemResponse",
+        "type": "object"
+      },
+      "ProjectionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "projected": {
+            "title": "Projected",
+            "type": "string"
+          },
+          "spent_mtd": {
+            "title": "Spent Mtd",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spent_mtd",
+          "projected"
+        ],
+        "title": "ProjectionSummary",
         "type": "object"
       },
       "ReceiptExtraction": {
@@ -2747,6 +3008,66 @@
         "title": "ReceiptTaxes",
         "type": "object"
       },
+      "RecentMovementItem": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "occurred_at",
+          "title",
+          "amount"
+        ],
+        "title": "RecentMovementItem",
+        "type": "object"
+      },
+      "RecurringCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "merchant": {
+            "title": "Merchant",
+            "type": "string"
+          },
+          "next_expected": {
+            "format": "date",
+            "title": "Next Expected",
+            "type": "string"
+          },
+          "typical_amount": {
+            "title": "Typical Amount",
+            "type": "string"
+          }
+        },
+        "required": [
+          "merchant",
+          "typical_amount",
+          "next_expected"
+        ],
+        "title": "RecurringCandidate",
+        "type": "object"
+      },
       "RegisterRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2862,6 +3183,41 @@
         ],
         "title": "ScheduleType",
         "type": "string"
+      },
+      "TopCategoryItem": {
+        "additionalProperties": false,
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "share_pct": {
+            "title": "Share Pct",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "total",
+          "share_pct"
+        ],
+        "title": "TopCategoryItem",
+        "type": "object"
       },
       "TransactionType": {
         "enum": [
@@ -3092,6 +3448,56 @@
           "message"
         ],
         "title": "ValidationIssue",
+        "type": "object"
+      },
+      "WeekdayPattern": {
+        "additionalProperties": false,
+        "properties": {
+          "weekday_avg": {
+            "title": "Weekday Avg",
+            "type": "string"
+          },
+          "weekend_avg": {
+            "title": "Weekend Avg",
+            "type": "string"
+          }
+        },
+        "required": [
+          "weekend_avg",
+          "weekday_avg"
+        ],
+        "title": "WeekdayPattern",
+        "type": "object"
+      },
+      "WeeklySpendItem": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "expenses": {
+            "title": "Expenses",
+            "type": "string"
+          },
+          "is_future": {
+            "title": "Is Future",
+            "type": "boolean"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "expenses",
+          "is_future"
+        ],
+        "title": "WeeklySpendItem",
         "type": "object"
       },
       "finance_ai__categories__schemas__CategoryResponse": {
@@ -5528,6 +5934,110 @@
         "summary": "Update Category",
         "tags": [
           "Categories"
+        ]
+      }
+    },
+    "/api/v1/dashboard/summary": {
+      "get": {
+        "operationId": "get_dashboard_summary_api_v1_dashboard_summary_get",
+        "parameters": [
+          {
+            "description": "Start date (YYYY-MM-DD)",
+            "in": "query",
+            "name": "start_date",
+            "required": true,
+            "schema": {
+              "description": "Start date (YYYY-MM-DD)",
+              "format": "date",
+              "title": "Start Date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "End date (YYYY-MM-DD)",
+            "in": "query",
+            "name": "end_date",
+            "required": true,
+            "schema": {
+              "description": "End date (YYYY-MM-DD)",
+              "format": "date",
+              "title": "End Date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "default": "COP",
+              "maxLength": 10,
+              "minLength": 3,
+              "title": "Currency",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tz",
+            "required": false,
+            "schema": {
+              "default": "America/Bogota",
+              "title": "Tz",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Dashboard Summary",
+        "tags": [
+          "Dashboard"
         ]
       }
     },
