@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
 # Set Neon DB URL before importing settings
@@ -22,15 +22,14 @@ os.environ["FINANCE_AI_DATABASE_URL"] = (
     "postgresql+psycopg://neondb_owner:npg_pcxN62GAHhZW@ep-withered-rain-acg9wncp.sa-east-1.aws.neon.tech/neondb?sslmode=require"
 )
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from finance_ai.accounts.dependencies import get_account_service
 from finance_ai.accounts.schemas import AccountCreateCommand, AccountType
 from finance_ai.categories.dependencies import get_category_service
 from finance_ai.categories.schemas import CategoryColor, CategoryCreateCommand, CategoryIcon
-from finance_ai.db.models import Account, AccountMovement, Category, Expense, FinancialTransaction, Income, Receipt
+from finance_ai.db.models import AccountMovement, Expense, FinancialTransaction, Income, Receipt
 from finance_ai.db.session import get_session_factory
-from finance_ai.income_sources.dependencies import get_income_source_service
 
 
 def seed_user(email: str):
@@ -46,9 +45,9 @@ def seed_user(email: str):
             return
         user_id = user_row[0]
         currency_id = user_row[2] or 1
-        print(f"\n========================================================")
+        print("\n========================================================")
         print(f"Seeding rich 6-month history for {email} (id={user_id})...")
-        print(f"========================================================")
+        print("========================================================")
 
     # 1. Categories
     category_service = get_category_service()
@@ -148,7 +147,9 @@ def seed_user(email: str):
         session.execute(text("DELETE FROM account_movement WHERE user_id = :uid"), {"uid": user_id})
         session.execute(text("DELETE FROM expense WHERE user_id = :uid"), {"uid": user_id})
         session.execute(text("DELETE FROM receipt WHERE user_id = :uid"), {"uid": user_id})
-        session.execute(text("DELETE FROM financial_transaction WHERE user_id = :uid"), {"uid": user_id})
+        session.execute(
+            text("DELETE FROM financial_transaction WHERE user_id = :uid"), {"uid": user_id}
+        )
         session.execute(text("DELETE FROM income WHERE user_id = :uid"), {"uid": user_id})
         session.flush()
 
@@ -197,7 +198,15 @@ def seed_user(email: str):
             session.add(inc)
             total_incomes += 1
 
-        def add_expense(acc_id: int, amt: Decimal, merch: str, occ: datetime, c_id: int, note: str, items: list[tuple[str, Decimal, Decimal]] | None = None):
+        def add_expense(
+            acc_id: int,
+            amt: Decimal,
+            merch: str,
+            occ: datetime,
+            c_id: int,
+            note: str,
+            items: list[tuple[str, Decimal, Decimal]] | None = None,
+        ):
             nonlocal total_expenses
             tx = FinancialTransaction(
                 user_id=user_id,

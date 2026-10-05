@@ -340,7 +340,8 @@ class DashboardRepository:
               JOIN currency c ON c.id = i.currency_id
               WHERE i.user_id = :user_id
                 AND c.code = :currency
-                AND i.date >= (date_trunc('month', CAST(:today AS date)) - interval '6 months')::date
+                AND i.date >=
+                  (date_trunc('month', CAST(:today AS date)) - interval '6 months')::date
                 AND i.date < date_trunc('month', CAST(:today AS date))::date
               GROUP BY 1
             )
@@ -378,7 +379,9 @@ class DashboardRepository:
             """
             WITH days AS (
               SELECT d::date AS day
-              FROM generate_series(CAST(:today AS date) - 89, CAST(:today AS date), interval '1 day') d
+              FROM generate_series(
+                CAST(:today AS date) - 89, CAST(:today AS date), interval '1 day'
+              ) d
             ), spend AS (
               SELECT (ft.occurred_at AT TIME ZONE :tz)::date AS day,
                      -am.amount AS amount

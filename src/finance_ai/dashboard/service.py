@@ -93,9 +93,8 @@ class DashboardService:
         comparison_days = days_elapsed if (is_current and days_elapsed > 0) else days_total
 
         _, cur_month_days = calendar.monthrange(start_date.year, start_date.month)
-        is_full_month_window = (
-            start_date.day == 1
-            and end_date == date(start_date.year, start_date.month, cur_month_days)
+        is_full_month_window = start_date.day == 1 and end_date == date(
+            start_date.year, start_date.month, cur_month_days
         )
 
         if is_full_month_window:
@@ -235,9 +234,9 @@ class DashboardService:
 
         w = Decimal(elapsed_m_days) / Decimal(days_in_cur_month)
         mtd_daily = (spent_mtd / Decimal(elapsed_m_days)) if elapsed_m_days > 0 else Decimal("0")
-        projected_remaining = (
-            w * mtd_daily + (Decimal("1") - w) * hist_daily
-        ) * Decimal(remaining_m_days)
+        projected_remaining = (w * mtd_daily + (Decimal("1") - w) * hist_daily) * Decimal(
+            remaining_m_days
+        )
         projected_total = spent_mtd + projected_remaining
 
         projection = ProjectionSummary(
