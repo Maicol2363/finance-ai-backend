@@ -412,6 +412,9 @@ def _state_from(
         income_source_id=proposal.income_source.id if proposal.income_source else None,
         confidence=proposal.confidence,
         stated_currency=stated_currency,
+        description_asked=(
+            proposal.clarification is not None and proposal.clarification.field == "description"
+        ),
         date_stated=proposal.date is not None,
     )
 
@@ -421,6 +424,8 @@ def _merge_previous(state: DraftState, previous: DraftState) -> None:
     for name in _MERGED_FIELDS:
         if getattr(state, name) is None and getattr(previous, name) is not None:
             setattr(state, name, getattr(previous, name))
+    # A question already asked about the concept is not asked a second time.
+    state.description_asked = state.description_asked or previous.description_asked
     if not state.date_stated:
         state.date = previous.date
     if state.intent is None:

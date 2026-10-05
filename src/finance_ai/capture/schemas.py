@@ -30,7 +30,7 @@ class ProposalStatus(StrEnum):
 
 
 ClarificationField = Literal[
-    "intent", "amount", "account", "destination_account", "destination_amount"
+    "intent", "amount", "account", "destination_account", "destination_amount", "description"
 ]
 
 

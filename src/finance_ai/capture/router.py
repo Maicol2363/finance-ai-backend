@@ -35,7 +35,6 @@ CAPTURE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     status_code=status.HTTP_201_CREATED,
     responses=CAPTURE_ERROR_RESPONSES,
     summary="Propose a financial operation from natural text (nothing is saved)",
-    dependencies=[Depends(enforce_text_capture_rate_limit)],
 )
 async def create_text_proposal(
     payload: TextProposalRequest,
@@ -43,6 +42,9 @@ async def create_text_proposal(
     service: Annotated[TextCaptureService, Depends(get_text_capture_service)],
 ) -> TextProposalResponse:
     """A first message, a typed correction or a tapped choice (corrections keep the text)."""
+    if payload.choice is None:
+        # Only a typed message reaches the model; a tapped option does not.
+        enforce_text_capture_rate_limit(principal.user_id)
     return await service.propose(owner_id=principal.user_id, request=payload)
 
 

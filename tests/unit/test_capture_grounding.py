@@ -5,11 +5,14 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import replace
 
+import pytest
+
 from finance_ai.capture.context import AccountEntry, CaptureContext
 from finance_ai.capture.grounding import (
     DraftState,
     Outcome,
     apply_choice,
+    extract_amount_hint,
     finalize,
     ground,
     normalize_name,
@@ -54,7 +57,13 @@ def test_complete_confident_expense_is_one_tap() -> None:
 
 def test_low_confidence_is_ready_but_needs_a_careful_review() -> None:
     state, outcome = resolve(
-        {"intent": "expense", "amount": 5000, "account": "Nequi", "confidence": 0.5}
+        {
+            "intent": "expense",
+            "amount": 5000,
+            "account": "Nequi",
+            "description": "Bus",
+            "confidence": 0.5,
+        }
     )
 
     assert outcome.status is ProposalStatus.READY
@@ -85,6 +94,7 @@ def test_paying_a_person_that_is_not_an_account_stays_an_expense() -> None:
             "amount": 50000,
             "account": "Nequi",
             "destination_account": "Juan Perez",
+            "description": "Pago a Juan",
         }
     )
 
@@ -150,7 +160,9 @@ def test_unspecified_account_with_several_accounts_offers_them() -> None:
 
 def test_a_single_active_account_is_used_without_asking() -> None:
     context = replace(CONTEXT, accounts=ACCOUNTS[:1])
-    state, outcome = resolve({"intent": "income", "amount": 1000000}, context=context)
+    state, outcome = resolve(
+        {"intent": "income", "amount": 1000000, "description": "Sueldo"}, context=context
+    )
 
     assert state.account_id == 1
     assert outcome.status is ProposalStatus.READY
@@ -288,7 +300,7 @@ def test_without_accounts_the_user_is_sent_to_create_one() -> None:
 
 
 def test_tapping_an_account_choice_completes_the_proposal_without_the_model() -> None:
-    state, outcome = resolve({"intent": "expense", "amount": 8000})
+    state, outcome = resolve({"intent": "expense", "amount": 8000, "description": "Bus"})
     assert outcome.clarification is not None
 
     apply_choice(state, TextChoice(field="account", value="2"), CONTEXT)
@@ -340,3 +352,74 @@ def test_model_output_is_tolerated_when_malformed() -> None:
     assert parsed.date is None
     assert parsed.description == "Taxi al aeropuerto"
     assert parsed.account is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("13 mil pesos y ya", "13000.00"),
+        ("gasté 15.900 en Subway", "15900.00"),
+        ("me pagaron 2 millones", "2000000.00"),
+        ("20 lucas", "20000.00"),
+        ("1,5 millones", "1500000.00"),
+        ("compré 3 cosas", None),
+        ("pagué 13 mil y 20 mil", None),
+        ("hola", None),
+    ],
+)
+def test_the_amount_is_recovered_from_the_text_only_when_unambiguous(
+    text: str, expected: str | None
+) -> None:
+    hint = extract_amount_hint(text)
+
+    assert (None if hint is None else format(hint, ".2f")) == expected
+
+
+def test_a_message_with_only_an_amount_asks_what_to_register_instead_of_being_ignored() -> None:
+    state, outcome = resolve({"intent": "unknown", "confidence": 0.1}, text="13 mil pesos y ya")
+
+    assert str(state.amount) == "13000.00"
+    assert outcome.status is ProposalStatus.NEEDS_CLARIFICATION
+    assert outcome.clarification is not None
+    assert outcome.clarification.field == "intent"
+    assert any("monto" in note for note in state.notes)
+
+
+def test_a_missing_concept_is_asked_once_with_a_way_to_skip() -> None:
+    state, outcome = resolve({"intent": "expense", "amount": 13000, "account": "Efectivo"})
+
+    assert outcome.status is ProposalStatus.NEEDS_CLARIFICATION
+    assert outcome.clarification is not None
+    assert outcome.clarification.field == "description"
+    assert [o.value for o in outcome.clarification.options] == ["skip"]
+
+    apply_choice(state, TextChoice(field="description", value="skip"), CONTEXT)
+    assert finalize(state, CONTEXT).status is ProposalStatus.READY
+
+
+def test_the_concept_question_is_not_repeated_after_it_was_asked() -> None:
+    state, _ = resolve({"intent": "income", "amount": 500000, "account": "Nequi"})
+    state.description_asked = True
+
+    assert finalize(state, CONTEXT).status is ProposalStatus.READY
+
+
+def test_a_category_counts_as_the_concept() -> None:
+    _, outcome = resolve(
+        {"intent": "expense", "amount": 13000, "account": "Efectivo", "category": "Comida"}
+    )
+
+    assert outcome.status is ProposalStatus.READY
+
+
+def test_transfers_never_ask_for_a_concept() -> None:
+    _, outcome = resolve(
+        {
+            "intent": "transfer",
+            "amount": 5000,
+            "account": "Nequi",
+            "destination_account": "Efectivo",
+        }
+    )
+
+    assert outcome.status is ProposalStatus.READY

@@ -198,7 +198,7 @@ def test_confirming_an_income_and_a_transfer_uses_the_same_atomic_operations() -
     cash = create_account(owner, "Efectivo", "0.00")
     nequi = create_account(owner, "Nequi", "50000.00")
     service = build(
-        raw(intent="income", amount=200000, account="Efectivo"),
+        raw(intent="income", amount=200000, account="Efectivo", description="Venta"),
         raw(intent="expense", amount=30000, account="Nequi", destination_account="Efectivo"),
     )
 
@@ -237,7 +237,7 @@ def test_manual_rules_still_apply_to_a_text_confirmation() -> None:
     stranger = create_owner("capture-stranger@example.test")
     foreign_account = create_account(stranger, "Ajena")
     cash = create_account(owner, "Efectivo")
-    service = build(raw(intent="expense", amount=1000, account="Efectivo"))
+    service = build(raw(intent="expense", amount=1000, account="Efectivo", description="Gasto"))
     proposal = propose(service, owner, "gasto de mil")
 
     with pytest.raises(ExpenseAccountInvalidError):
@@ -262,7 +262,11 @@ def test_manual_rules_still_apply_to_a_text_confirmation() -> None:
 def test_drafts_disappear_with_their_user() -> None:
     owner = create_owner("capture-cascade@example.test")
     create_account(owner, "Efectivo")
-    propose(build(raw(intent="expense", amount=1000, account="Efectivo")), owner, "mil")
+    propose(
+        build(raw(intent="expense", amount=1000, account="Efectivo", description="Gasto")),
+        owner,
+        "mil",
+    )
 
     with get_session_factory()() as session:
         session.execute(text("DELETE FROM app_user WHERE id = :id"), {"id": owner})

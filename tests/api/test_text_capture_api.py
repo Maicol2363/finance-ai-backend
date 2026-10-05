@@ -214,3 +214,29 @@ def test_a_server_without_a_key_says_so_and_stays_safe(
     assert problem["code"] == "text_capture_not_configured"
     assert problem["correlation_id"] == "cap-cfg"
     assert SECRET_TEXT not in json.dumps(problem)
+
+
+def test_tapped_options_do_not_spend_the_message_budget(
+    session_factory: sessionmaker[Session],
+) -> None:
+    question = raw(intent="expense", amount=13000)
+    gateway = FakeGateway(question, *[expense_answer()] * 3)
+    for client in make_client(session_factory, gateway):
+        first = client.post(URL, json=body("13 mil pesos"))
+        proposal_id = first.json()["proposal_id"]
+        taps = [
+            client.post(
+                URL,
+                json={
+                    "client_now": CLIENT_NOW.isoformat(),
+                    "proposal_id": proposal_id,
+                    "choice": {"field": "account", "value": "1"},
+                },
+            ).status_code
+            for _ in range(8)
+        ]
+        typed = client.post(URL, json=body("otro mensaje"))
+
+    assert first.status_code == 201
+    assert taps == [201] * 8
+    assert typed.status_code == 201

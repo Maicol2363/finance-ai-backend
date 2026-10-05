@@ -382,3 +382,65 @@ def test_a_missing_provider_key_is_reported_as_not_configured_not_as_an_outage(
     assert caught.value.code == "text_capture_not_configured"
     assert caught.value.status == 503
     assert draft_count(session_factory) == 0
+
+
+def test_a_missing_concept_is_asked_and_the_typed_answer_completes_the_draft(
+    session_factory: sessionmaker[Session],
+) -> None:
+    gateway = FakeGateway(
+        raw(intent="expense", amount=13000, account="Efectivo"),
+        raw(intent="expense", description="Bus"),
+    )
+    service, *_ = build_service(session_factory, gateway)
+    first = asyncio.run(service.propose(owner_id=OWNER, request=turn("13 mil pesos")))
+    assert first.status is ProposalStatus.NEEDS_CLARIFICATION
+    assert first.clarification is not None and first.clarification.field == "description"
+
+    second = asyncio.run(
+        service.propose(owner_id=OWNER, request=turn("bus", proposal_id=first.proposal_id))
+    )
+
+    assert second.status is ProposalStatus.READY
+    assert second.description == "Bus"
+    assert second.amount == "13000.00"
+    assert second.original_text == "13 mil pesos"
+
+
+def test_the_concept_is_not_asked_twice_even_if_the_answer_does_not_give_it(
+    session_factory: sessionmaker[Session],
+) -> None:
+    gateway = FakeGateway(
+        raw(intent="expense", amount=13000, account="Efectivo"),
+        raw(intent="expense", account="Efectivo"),
+    )
+    service, *_ = build_service(session_factory, gateway)
+    first = asyncio.run(service.propose(owner_id=OWNER, request=turn("13 mil pesos")))
+
+    second = asyncio.run(
+        service.propose(owner_id=OWNER, request=turn("no sé", proposal_id=first.proposal_id))
+    )
+
+    assert second.status is ProposalStatus.READY
+    assert second.description is None
+
+
+def test_skipping_the_concept_with_a_tapped_option_needs_no_model_call(
+    session_factory: sessionmaker[Session],
+) -> None:
+    gateway = FakeGateway(raw(intent="expense", amount=13000, account="Efectivo"))
+    service, *_ = build_service(session_factory, gateway)
+    first = asyncio.run(service.propose(owner_id=OWNER, request=turn("13 mil pesos")))
+
+    skipped = asyncio.run(
+        service.propose(
+            owner_id=OWNER,
+            request=TextProposalRequest(
+                client_now=CLIENT_NOW,
+                proposal_id=first.proposal_id,
+                choice=TextChoice(field="description", value="skip"),
+            ),
+        )
+    )
+
+    assert len(gateway.calls) == 1
+    assert skipped.status is ProposalStatus.READY

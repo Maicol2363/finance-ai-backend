@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from fastapi import HTTPException
 
-from fastapi import Depends, HTTPException
-
-from finance_ai.accounts.dependencies import get_account_service, get_authenticated_principal
-from finance_ai.auth.session_schemas import PublicAuthenticatedUser
+from finance_ai.accounts.dependencies import get_account_service
 from finance_ai.capture.context import AccountEntry, CaptureContext, CatalogEntry
 from finance_ai.capture.gateway import get_text_gateway
 from finance_ai.capture.service import TextCaptureService
@@ -20,8 +17,9 @@ from finance_ai.incomes.dependencies import get_income_service
 from finance_ai.receipts.guards import ReceiptRateLimiter
 from finance_ai.transfers.dependencies import get_transfer_service
 
-# A short burst for a chat, then a steady pace: every message may cost one AI call.
-_rate_limiter = ReceiptRateLimiter(capacity=6.0, requests_per_minute=20.0)
+# A short burst for a chat, then a steady pace: every typed message costs one AI call.
+# Tapped options are answered without the model, so they never spend this budget.
+_rate_limiter = ReceiptRateLimiter(capacity=10.0, requests_per_minute=20.0)
 
 
 def load_capture_context(owner_id: int) -> CaptureContext:
@@ -53,11 +51,9 @@ def get_text_capture_service() -> TextCaptureService:
     )
 
 
-def enforce_text_capture_rate_limit(
-    principal: Annotated[PublicAuthenticatedUser, Depends(get_authenticated_principal)],
-) -> None:
+def enforce_text_capture_rate_limit(user_id: int) -> None:
     try:
-        _rate_limiter.check_rate_limit(principal.user_id)
+        _rate_limiter.check_rate_limit(user_id)
     except HTTPException as exc:
         retry_after = int((exc.headers or {}).get("Retry-After", "5"))
         raise TextCaptureRateLimitedError(retry_after) from None

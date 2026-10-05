@@ -62,6 +62,7 @@ class DraftState:
     account_candidates: tuple[int, ...] = ()
     destination_candidates: tuple[int, ...] = ()
     stated_currency: str | None = None
+    description_asked: bool = False
     date_stated: bool = False
     intent_conflict: bool = False
     notes: list[str] = field(default_factory=list)
@@ -80,6 +81,47 @@ class Outcome:
 class _Match:
     kind: Literal["none", "one", "many"]
     ids: tuple[int, ...] = ()
+
+
+_AMOUNT_WORD = re.compile(
+    r"(?<![\w.,])(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(millones|millón|millon|mil|lucas|luka|k)?(?![\w])",
+    re.IGNORECASE,
+)
+_MULTIPLIERS = {
+    "mil": Decimal(1000),
+    "lucas": Decimal(1000),
+    "luka": Decimal(1000),
+    "k": Decimal(1000),
+    "millon": Decimal(1_000_000),
+    "millón": Decimal(1_000_000),
+    "millones": Decimal(1_000_000),
+}
+
+
+def extract_amount_hint(text: str) -> Decimal | None:
+    """The one amount written in a message, for when the model missed it.
+
+    Only an unambiguous reading is returned: exactly one candidate, and either a
+    multiplier word ("13 mil", "2 millones") or a figure of at least 1.000.
+    """
+    candidates: list[Decimal] = []
+    for match in _AMOUNT_WORD.finditer(text):
+        raw_number, word = match.group(1), (match.group(2) or "").lower()
+        digits = raw_number
+        if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", digits):
+            digits = re.sub(r"[.,]", "", digits)
+        else:
+            digits = digits.replace(",", ".")
+        try:
+            value = Decimal(digits)
+        except ArithmeticError:
+            continue
+        value *= _MULTIPLIERS.get(word, Decimal(1))
+        if word or value >= 1000:
+            candidates.append(value)
+    if len(candidates) != 1 or candidates[0] <= 0:
+        return None
+    return candidates[0].quantize(Decimal("0.01"))
 
 
 def normalize_name(value: str) -> str:
@@ -137,6 +179,12 @@ def ground(
         stated_currency=raw.currency,
     )
 
+    if state.amount is None:
+        hint = extract_amount_hint(text)
+        if hint is not None:
+            state.amount = hint
+            state.notes.append("Tomé el monto de tu mensaje; revísalo.")
+
     if raw.date is not None:
         if raw.date > today:
             state.notes.append("No registramos fechas futuras: usé la fecha de hoy.")
@@ -186,6 +234,10 @@ def apply_choice(state: DraftState, choice: TextChoice, context: CaptureContext)
         state.intent = CaptureIntent(choice.value)
         state.intent_conflict = False
         state.confidence = max(state.confidence, ONE_TAP_CONFIDENCE)
+        return
+    if choice.field == "description":
+        # "Sin descripción": go on without asking again.
+        state.description_asked = True
         return
     if choice.field in ("account", "destination_account"):
         try:
@@ -298,6 +350,19 @@ def finalize(state: DraftState, context: CaptureContext) -> Outcome:
                         f"{source.currency_code}. ¿Con qué cuenta fue?"
                     ),
                     options=_account_options(options, context),
+                )
+            )
+        has_concept = state.description or state.category_id or state.income_source_id
+        if not has_concept and not state.description_asked:
+            return _needs(
+                Clarification(
+                    field="description",
+                    question=(
+                        "¿En qué fue el gasto? Escríbelo o toca «Sin descripción»."
+                        if intent is CaptureIntent.EXPENSE
+                        else "¿De qué fue el ingreso? Escríbelo o toca «Sin descripción»."
+                    ),
+                    options=[ClarificationOption(value="skip", label="Sin descripción")],
                 )
             )
         return _ready(state, source.currency_code)

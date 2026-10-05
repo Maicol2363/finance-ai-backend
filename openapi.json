@@ -891,7 +891,8 @@
               "amount",
               "account",
               "destination_account",
-              "destination_amount"
+              "destination_amount",
+              "description"
             ],
             "title": "Field",
             "type": "string"
@@ -3395,7 +3396,8 @@
               "amount",
               "account",
               "destination_account",
-              "destination_amount"
+              "destination_amount",
+              "description"
             ],
             "title": "Field",
             "type": "string"
