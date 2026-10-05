@@ -81,6 +81,7 @@ class ExpenseService:
                 occurred_at=command.occurred_at,
                 category_id=command.category_id,
                 note=command.note,
+                capture_source=command.capture_source,
             )
             uow.flush()
             uow.commit()

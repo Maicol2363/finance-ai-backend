@@ -114,6 +114,7 @@ class SQLAlchemyExpenseRepository:
         occurred_at: datetime,
         category_id: int | None = None,
         note: str | None = None,
+        capture_source: str = "manual",
     ) -> ExpenseRecord:
         normalized = merchant.strip().lower()
         store = self.session.execute(
@@ -145,7 +146,7 @@ class SQLAlchemyExpenseRepository:
             status="confirmed",
             occurred_at=occurred_at,
             description=merchant.strip(),
-            capture_source="manual",
+            capture_source=capture_source,
         )
         self.session.add(transaction)
         self.session.flush()

@@ -452,6 +452,57 @@ class TransferSourceDestinationMismatchError(AppError):
         )
 
 
+class TextProposalNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="text_proposal_not_found",
+            title="Text proposal not found",
+            detail="This draft is no longer available. Write your message again.",
+        )
+
+
+class TextProposalClosedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="text_proposal_closed",
+            title="Text proposal is closed",
+            detail="This draft was already discarded. Write your message again.",
+        )
+
+
+class TextCaptureUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="text_capture_unavailable",
+            title="Text capture is unavailable",
+            detail="The assistant could not read your message now. Retry or use the manual form.",
+        )
+
+
+class TextCaptureNotConfiguredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="text_capture_not_configured",
+            title="Text capture is not configured",
+            detail="The AI assistant is not set up on the server. Use the manual form.",
+        )
+
+
+class TextCaptureRateLimitedError(AppError):
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            status=429,
+            code="text_capture_rate_limited",
+            title="Too many messages",
+            detail="Please wait a moment before sending another message.",
+            headers={"Retry-After": str(retry_after_seconds)},
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 

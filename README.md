@@ -57,6 +57,16 @@ Authenticated users can create multiple concurrent budgets for one owned categor
 
 Budget progress is derived on read from confirmed expense transactions. Only expenses inside the resolved occurrence and in the budget's exact currency contribute; no implicit currency conversion or separately maintained progress total is used. Category ownership is enforced at both the service and database constraint layers, and deleting a category cascades only its linked budgets.
 
+## Text capture (HU-013)
+
+Users can describe what happened in their own words and get a proposed operation to review. Nothing is saved while proposing.
+
+- `POST /api/v1/capture/text/proposals` reads one chat turn: a first message, a typed correction (send the `proposal_id`; the server keeps the original text) or a tapped clarification option (`choice`, applied without a new AI call). It returns `ready`, `needs_clarification` (one short question with options) or `unrecognized`.
+- `GET` / `DELETE /api/v1/capture/text/proposals/{proposal_id}` read or discard the draft (24 h, private to its owner).
+- `POST /api/v1/capture/text/proposals/{proposal_id}/confirm` records the possibly edited values through the same validated, atomic expense, income or transfer service the manual forms use, marked `capture_source = text_ai`. Repeating it returns the first result (`200`, `replayed: true`).
+
+The model only suggests: accounts, categories and income sources are grounded against the caller's own active data, transfers between two owned accounts are never recorded as spending, and a currency or account the user did not name is asked about instead of guessed. The provider is chosen with `FINANCE_AI_LLM_PROVIDER` (`gemini` with `FINANCE_AI_GEMINI_API_KEY`, or `deepseek` with `FINANCE_AI_DEEPSEEK_API_KEY`); the other one is used as a backup when its key is set; keys stay on the server and the client never sees them. A provider outage returns `503 text_capture_unavailable` and the client falls back to the manual forms. Messages are limited per user (burst of 6, then 20 per minute). Drafts live in `text_capture_proposals` (migration `0016`).
+
 ## Unified history (HU-011)
 
 `GET /api/v1/history` returns owned `expense`, `income`, and `transfer` transactions ordered by `occurred_at DESC, id DESC`. It supports `search`, `type`, `category_id`, `account_id`, `period=weekly|monthly|custom`, `start_date`, `end_date`, `page`, and `page_size`. Custom ranges are inclusive by date, and each movement includes the account's currency metadata and signed amount. History reads existing income and transfer transactions; their public creation flows belong to later stories.

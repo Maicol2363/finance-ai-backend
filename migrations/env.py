@@ -15,6 +15,7 @@ from finance_ai.db.models import (
     IncomeSource,
     ReceiptProposalModel,
     RenewableCredential,
+    TextCaptureProposalModel,
     UserSession,
 )
 
@@ -27,6 +28,7 @@ _MODELS = (
     FinancialTransaction,
     IncomeSource,
     ReceiptProposalModel,
+    TextCaptureProposalModel,
     RenewableCredential,
     UserSession,
 )

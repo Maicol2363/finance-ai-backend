@@ -48,7 +48,9 @@ class IncomeRepository:
             .with_for_update(of=FinancialTransaction)
         )
 
-    def create(self, *, owner_id: int, request: IncomeWriteRequest) -> int:
+    def create(
+        self, *, owner_id: int, request: IncomeWriteRequest, capture_source: str = "manual"
+    ) -> int:
         transaction = FinancialTransaction(
             user_id=owner_id,
             transaction_type="income",
@@ -56,7 +58,7 @@ class IncomeRepository:
             occurred_at=datetime.combine(request.date, time.min, UTC),
             description=request.description,
             income_source_id=request.income_source_id,
-            capture_source="manual",
+            capture_source=capture_source,
         )
         self.session.add(transaction)
         self.session.flush()

@@ -16,11 +16,15 @@ class IncomeService:
     def __init__(self, session_factory: Callable[[], Session]) -> None:
         self.session_factory = session_factory
 
-    def create(self, *, owner_id: int, request: IncomeWriteRequest) -> IncomeRecord:
+    def create(
+        self, *, owner_id: int, request: IncomeWriteRequest, capture_source: str = "manual"
+    ) -> IncomeRecord:
         with self.session_factory() as session, session.begin():
             repository = IncomeRepository(session)
             self._validate_references(repository, owner_id=owner_id, request=request)
-            income_id = repository.create(owner_id=owner_id, request=request)
+            income_id = repository.create(
+                owner_id=owner_id, request=request, capture_source=capture_source
+            )
             record = repository.get(owner_id=owner_id, income_id=income_id)
             if record is None:
                 raise RuntimeError("New income disappeared")

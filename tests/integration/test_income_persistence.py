@@ -200,9 +200,13 @@ def test_failed_create_rolls_back_transaction_and_movement(monkeypatch: pytest.M
     original = IncomeRepository.create
 
     def fail_after_staging(
-        repository: IncomeRepository, *, owner_id: int, request: IncomeWriteRequest
+        repository: IncomeRepository,
+        *,
+        owner_id: int,
+        request: IncomeWriteRequest,
+        capture_source: str = "manual",
     ) -> int:
-        original(repository, owner_id=owner_id, request=request)
+        original(repository, owner_id=owner_id, request=request, capture_source=capture_source)
         raise RuntimeError("synthetic failure after flush")
 
     monkeypatch.setattr(IncomeRepository, "create", fail_after_staging)

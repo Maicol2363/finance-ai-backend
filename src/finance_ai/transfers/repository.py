@@ -40,6 +40,7 @@ class TransferRepository:
         owner_id: int,
         request: TransferCreateRequest,
         destination_amount: Decimal,
+        capture_source: str = "manual",
     ) -> int:
         transaction = FinancialTransaction(
             user_id=owner_id,
@@ -47,7 +48,7 @@ class TransferRepository:
             status="confirmed",
             occurred_at=datetime.combine(request.date, time.min, UTC),
             description=request.description,
-            capture_source="manual",
+            capture_source=capture_source,
         )
         self.session.add(transaction)
         self.session.flush()
