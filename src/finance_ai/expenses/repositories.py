@@ -160,6 +160,7 @@ class ExpenseRepository(Protocol):
         occurred_at: datetime,
         category_id: int | None = None,
         note: str | None = None,
+        capture_source: str = "manual",
     ) -> ExpenseRecord: ...
 
     def update(

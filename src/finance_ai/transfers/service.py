@@ -19,7 +19,9 @@ class TransferService:
     def __init__(self, session_factory: Callable[[], Session]) -> None:
         self.session_factory = session_factory
 
-    def create(self, *, owner_id: int, request: TransferCreateRequest) -> TransferRecord:
+    def create(
+        self, *, owner_id: int, request: TransferCreateRequest, capture_source: str = "manual"
+    ) -> TransferRecord:
         with self.session_factory() as session, session.begin():
             repository = TransferRepository(session)
             destination_amount = self._validate_references(
@@ -29,6 +31,7 @@ class TransferService:
                 owner_id=owner_id,
                 request=request,
                 destination_amount=destination_amount,
+                capture_source=capture_source,
             )
             record = repository.get(owner_id=owner_id, transfer_id=transfer_id)
             if record is None:

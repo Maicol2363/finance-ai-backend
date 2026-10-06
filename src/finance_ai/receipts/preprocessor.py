@@ -45,7 +45,9 @@ def _process_image_sync(
     orig_bytes_len = len(image_bytes)
 
     try:
-        with Image.open(io.BytesIO(image_bytes)) as img:
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            # The working image is replaced by each transformation below.
+            img: Image.Image = opened
             # Dimension checks
             if img.width > MAX_DIMENSION or img.height > MAX_DIMENSION:
                 raise HTTPException(

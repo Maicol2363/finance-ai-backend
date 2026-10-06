@@ -41,6 +41,10 @@ def _is_history_path(path: str) -> bool:
     return path == "/api/v1/history"
 
 
+def _is_capture_path(path: str) -> bool:
+    return path.startswith("/api/v1/capture/")
+
+
 class RequestBodyTooLargeError(Exception):
     pass
 
@@ -72,6 +76,7 @@ class RequestGuardMiddleware:
             or (method in {"POST", "PATCH"} and _is_account_path(path))
             or (method in {"POST", "PATCH", "PUT"} and _is_category_path(path))
             or (method == "PATCH" and _is_expense_path(path))
+            or (method == "POST" and _is_capture_path(path))
         )
         started = time.perf_counter()
 
@@ -154,6 +159,7 @@ class RequestGuardMiddleware:
                     or _is_category_path(path)
                     or _is_expense_path(path)
                     or _is_history_path(path)
+                    or _is_capture_path(path)
                 ):
                     response_headers.append((b"cache-control", b"no-store"))
                     response_headers.append((b"pragma", b"no-cache"))

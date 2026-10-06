@@ -1,3 +1,4 @@
+from finance_ai.capture.models import TextCaptureProposalModel
 from finance_ai.db.models.accounts import Account
 from finance_ai.db.models.budgets import Budget, SpendingLimit
 from finance_ai.db.models.catalogs import (
@@ -36,5 +37,6 @@ __all__ = [
     "SpendingLimit",
     "Store",
     "Subcategory",
+    "TextCaptureProposalModel",
     "UserSession",
 ]
