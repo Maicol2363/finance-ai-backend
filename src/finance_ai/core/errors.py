@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from finance_ai.core.logging import get_logger
 
@@ -140,6 +141,368 @@ class ServiceUnavailableError(AppError):
         )
 
 
+class AccountNameConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_name_conflict",
+            title="Account name is already in use",
+            detail="Choose a different name for this active account.",
+            field_errors={"name": ["An active account already uses this name."]},
+        )
+
+
+class AccountCurrencyInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="account_currency_invalid",
+            title="Currency is unavailable",
+            detail="Select a currently supported currency.",
+            field_errors={"currency_code": ["Select a currently supported currency."]},
+        )
+
+
+class AccountNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="account_not_found",
+            title="Account not found",
+            detail="The requested account is unavailable.",
+        )
+
+
+class AccountCurrencyLockedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_currency_locked",
+            title="Account currency cannot be changed",
+            detail="Currency cannot change after confirmed activity exists.",
+            field_errors={"currency_code": ["Currency is locked for this account."]},
+        )
+
+
+class AccountReactivationConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_reactivation_conflict",
+            title="Account cannot be reactivated",
+            detail="Update the account details before reactivating it.",
+        )
+
+
+class AccountDeleteBlockedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_delete_blocked",
+            title="Account cannot be permanently deleted",
+            detail="This account has financial activity. Deactivate it to preserve its history.",
+        )
+
+
+class CategoryNameConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="category_name_conflict",
+            title="Category name is already in use",
+            detail="Choose a different category name.",
+            field_errors={"name": ["A category already uses this name."]},
+        )
+
+
+class CategoryNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="category_not_found",
+            title="Category not found",
+            detail="The requested category is unavailable.",
+        )
+
+
+class CategoryAppearanceInvalidError(AppError):
+    def __init__(self, field: str) -> None:
+        super().__init__(
+            status=422,
+            code="category_appearance_invalid",
+            title="Category appearance is invalid",
+            detail="Choose a supported category appearance.",
+            field_errors={field: [f"Select a supported {field}."]},
+        )
+
+
+class CategoryOrderInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="category_order_invalid",
+            title="Category order is invalid",
+            detail="The order must include each of your categories exactly once.",
+            field_errors={"category_ids": ["Include each category exactly once."]},
+        )
+
+
+class BudgetNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="budget_not_found",
+            title="Budget not found",
+            detail="The requested budget is unavailable.",
+        )
+
+
+class BudgetCategoryUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="budget_category_unavailable",
+            title="Budget category is unavailable",
+            detail="Select one of your categories.",
+            field_errors={"category_id": ["Select one of your categories."]},
+        )
+
+
+class BudgetCurrencyInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="budget_currency_invalid",
+            title="Budget currency is unavailable",
+            detail="Select a currently supported currency.",
+            field_errors={"currency_code": ["Select a currently supported currency."]},
+        )
+
+
+class IncomeSourceValidationError(AppError):
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            status=422,
+            code="income_source_invalid",
+            title="Income source is invalid",
+            detail="Please correct the highlighted fields and try again.",
+            field_errors={"name": [message]},
+        )
+
+
+class IncomeSourceNameTakenError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="income_source_name_taken",
+            title="Income source name already exists",
+            detail="You already have an income source with this name.",
+            field_errors={"name": ["This name is already in use."]},
+        )
+
+
+class IncomeSourceNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="income_source_not_found",
+            title="Income source not found",
+            detail="This income source does not exist.",
+        )
+
+
+class ExpenseNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="expense_not_found",
+            title="Expense not found",
+            detail="The requested expense is unavailable.",
+        )
+
+
+class ReceiptProposalNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="receipt_proposal_not_found",
+            title="Receipt proposal not found",
+            detail="This receipt draft is no longer available. Scan the receipt again.",
+        )
+
+
+class ExpenseNotEditableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="expense_not_editable",
+            title="Expense cannot be edited",
+            detail="Only confirmed expenses can be edited or deleted.",
+        )
+
+
+class ExpenseAccountInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="expense_account_invalid",
+            title="Expense account is invalid",
+            detail="Select an active account with the expense currency.",
+            field_errors={"account_id": ["Select an active account with the expense currency."]},
+        )
+
+
+class ExpenseCategoryNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="expense_category_not_found",
+            title="Expense category is unavailable",
+            detail="Select one of your categories or leave the expense uncategorized.",
+            field_errors={"category_id": ["Select one of your categories."]},
+        )
+
+
+class HistoryFilterInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="history_filter_invalid",
+            title="History filters are invalid",
+            detail="Please correct the selected history filters.",
+            field_errors=field_errors,
+        )
+
+
+class IncomeNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="income_not_found",
+            title="Income not found",
+            detail="The requested income is unavailable.",
+        )
+
+
+class IncomeAccountUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="income_account_unavailable",
+            title="Account is unavailable",
+            detail="Choose one of your active accounts.",
+            field_errors={"account_id": ["Choose one of your active accounts."]},
+        )
+
+
+class IncomeSourceUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="income_source_unavailable",
+            title="Income source is unavailable",
+            detail="Choose one of your income sources or leave it empty.",
+            field_errors={"income_source_id": ["Choose one of your income sources."]},
+        )
+
+
+class TransferAccountUnavailableError(AppError):
+    def __init__(self, field: str) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_account_unavailable",
+            title="Account is unavailable",
+            detail="Choose one of your active accounts.",
+            field_errors={field: ["Choose one of your active accounts."]},
+        )
+
+
+class TransferSameAccountError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_same_account",
+            title="Accounts must differ",
+            detail="Choose two different accounts for the transfer.",
+            field_errors={
+                "destination_account_id": ["Choose a different account from the source."]
+            },
+        )
+
+
+class TransferDestinationAmountRequiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_destination_amount_required",
+            title="Destination amount is required",
+            detail="Declare the amount arriving in the destination currency.",
+            field_errors={"destination_amount": ["Declare the arriving destination amount."]},
+        )
+
+
+class TransferSourceDestinationMismatchError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_source_destination_mismatch",
+            title="Transfer amounts must match",
+            detail="Same-currency transfers move the same amount on both sides.",
+            field_errors={"destination_amount": ["Use the same amount as the source."]},
+        )
+
+
+class TextProposalNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="text_proposal_not_found",
+            title="Text proposal not found",
+            detail="This draft is no longer available. Write your message again.",
+        )
+
+
+class TextProposalClosedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="text_proposal_closed",
+            title="Text proposal is closed",
+            detail="This draft was already discarded. Write your message again.",
+        )
+
+
+class TextCaptureUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="text_capture_unavailable",
+            title="Text capture is unavailable",
+            detail="The assistant could not read your message now. Retry or use the manual form.",
+        )
+
+
+class TextCaptureNotConfiguredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="text_capture_not_configured",
+            title="Text capture is not configured",
+            detail="The AI assistant is not set up on the server. Use the manual form.",
+        )
+
+
+class TextCaptureRateLimitedError(AppError):
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            status=429,
+            code="text_capture_rate_limited",
+            title="Too many messages",
+            detail="Please wait a moment before sending another message.",
+            headers={"Retry-After": str(retry_after_seconds)},
+        )
+
+
 def correlation_id_from(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "unavailable"))
 
@@ -198,6 +561,32 @@ def install_exception_handlers(app: FastAPI) -> None:
         else:
             error = RequestInvalidError(_validation_field_errors(exc))
         return await app_error_handler(request, error)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        if exc.status_code == 404:
+            code = "route_not_found"
+            title = "Resource not found"
+            detail = "The requested resource is unavailable."
+        elif exc.status_code == 405:
+            code = "method_not_allowed"
+            title = "Method not allowed"
+            detail = "This request method is not supported for the resource."
+        else:
+            code = "http_error"
+            title = "Request failed"
+            detail = "The request could not be completed."
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content=problem_payload(
+                status=exc.status_code,
+                code=code,
+                title=title,
+                detail=detail,
+                correlation_id=correlation_id_from(request),
+            ),
+        )
 
     @app.exception_handler(Exception)
     async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:

@@ -1,7 +1,9 @@
 from datetime import timedelta
 from functools import lru_cache
+from typing import Annotated
 
-from fastapi import Header, Request
+from fastapi import Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from finance_ai.auth.credentials import CredentialCodec
 from finance_ai.auth.passwords import PasswordHasher, UnsafePasswordProvider
@@ -21,6 +23,12 @@ from finance_ai.core.rate_limit import (
 from finance_ai.db.session import get_session_factory
 from finance_ai.db.session_uow import SQLAlchemySessionUnitOfWork
 from finance_ai.db.uow import SQLAlchemyRegistrationUnitOfWork
+
+bearer_access = HTTPBearer(
+    auto_error=False,
+    scheme_name="BearerAuth",
+    description="Access credential returned by login or session refresh.",
+)
 
 
 @lru_cache
@@ -89,10 +97,15 @@ def get_session_rate_limiter() -> AuthRateLimiter:
     return get_auth_rate_limiter()
 
 
-def require_bearer_access(authorization: str | None = Header(default=None)) -> str:
-    if authorization is None:
+def require_bearer_access(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Security(bearer_access),
+    ],
+) -> str:
+    if credentials is None or credentials.scheme.casefold() != "bearer":
         raise AuthenticationRequiredError
-    parts = authorization.split(" ")
-    if len(parts) != 2 or parts[0].casefold() != "bearer" or not parts[1]:
+    access_credential = credentials.credentials.strip()
+    if not access_credential:
         raise AuthenticationRequiredError
-    return parts[1]
+    return access_credential

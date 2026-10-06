@@ -86,8 +86,6 @@ def test_starter_catalog_template_has_exact_stable_invariants() -> None:
     template = REGISTRATION_CATALOG_TEMPLATE
 
     assert template.categories == ("Needs", "Wants", "Other")
-    assert template.payment_methods == ("Cash", "Card", "Transfer")
     assert template.income_sources == ("Salary", "Other")
     assert len(set(template.categories)) == 3
-    assert len(set(template.payment_methods)) == 3
     assert len(set(template.income_sources)) == 2

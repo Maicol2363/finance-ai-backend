@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -14,17 +13,27 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from finance_ai.db.base import Base
+from finance_ai.db.base import Base, BigIntPK
 from finance_ai.db.models.reference import Currency
+
+
+class Role(Base):
+    __tablename__ = "role"
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
 
 
 class AppUser(Base):
     __tablename__ = "app_user"
     __table_args__ = (CheckConstraint("email = lower(btrim(email))", name="email_normalized"),)
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey("role.id", ondelete="RESTRICT"), nullable=False, server_default=text("1")
+    )
     preferred_currency_id: Mapped[int] = mapped_column(
         ForeignKey("currency.id", ondelete="RESTRICT"), nullable=False
     )
@@ -36,6 +45,7 @@ class AppUser(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
+    role: Mapped[Role] = relationship(lazy="joined")
     preferred_currency: Mapped[Currency] = relationship(lazy="joined")
 
 

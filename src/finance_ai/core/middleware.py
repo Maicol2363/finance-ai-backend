@@ -6,7 +6,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from finance_ai.core.errors import problem_payload
-from finance_ai.core.logging import get_logger
+from finance_ai.core.logging import bind_correlation_id, get_logger
 from finance_ai.core.observability import AuthOperation, auth_metrics, registration_metrics
 
 logger = get_logger(__name__)
@@ -23,6 +23,26 @@ _JSON_AUTH_PATHS = {
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
 }
+
+
+def _is_account_path(path: str) -> bool:
+    return path == "/api/v1/accounts" or path.startswith("/api/v1/accounts/")
+
+
+def _is_category_path(path: str) -> bool:
+    return path == "/api/v1/categories" or path.startswith("/api/v1/categories/")
+
+
+def _is_expense_path(path: str) -> bool:
+    return path == "/api/v1/expenses" or path.startswith("/api/v1/expenses/")
+
+
+def _is_history_path(path: str) -> bool:
+    return path == "/api/v1/history"
+
+
+def _is_capture_path(path: str) -> bool:
+    return path.startswith("/api/v1/capture/")
 
 
 class RequestBodyTooLargeError(Exception):
@@ -45,12 +65,19 @@ class RequestGuardMiddleware:
             raw_correlation if _CORRELATION_PATTERN.fullmatch(raw_correlation) else uuid4().hex
         )
         scope.setdefault("state", {})["correlation_id"] = correlation_id
+        bind_correlation_id(correlation_id)
 
         path = str(scope.get("path", ""))
         method = str(scope.get("method", ""))
         is_registration = path == "/api/v1/auth/register" and method == "POST"
         auth_operation = _AUTH_OPERATIONS.get((method, path))
-        guards_json_body = method == "POST" and path in _JSON_AUTH_PATHS
+        guards_json_body = (
+            (method == "POST" and path in _JSON_AUTH_PATHS)
+            or (method in {"POST", "PATCH"} and _is_account_path(path))
+            or (method in {"POST", "PATCH", "PUT"} and _is_category_path(path))
+            or (method == "PATCH" and _is_expense_path(path))
+            or (method == "POST" and _is_capture_path(path))
+        )
         started = time.perf_counter()
 
         if guards_json_body:
@@ -63,7 +90,7 @@ class RequestGuardMiddleware:
                     status=415,
                     code="unsupported_media_type",
                     title="Unsupported media type",
-                    detail="Authentication requests must use application/json.",
+                    detail="This request must use application/json.",
                     correlation_id=correlation_id,
                 )
                 self._record_completion(
@@ -126,7 +153,14 @@ class RequestGuardMiddleware:
                 status_code = int(message["status"])
                 response_headers = list(message.get("headers", []))
                 response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
-                if path.startswith("/api/v1/auth/"):
+                if (
+                    path.startswith("/api/v1/auth/")
+                    or _is_account_path(path)
+                    or _is_category_path(path)
+                    or _is_expense_path(path)
+                    or _is_history_path(path)
+                    or _is_capture_path(path)
+                ):
                     response_headers.append((b"cache-control", b"no-store"))
                     response_headers.append((b"pragma", b"no-cache"))
                 message["headers"] = response_headers
@@ -192,7 +226,7 @@ class RequestGuardMiddleware:
             status=413,
             code="request_too_large",
             title="Request is too large",
-            detail="The authentication request exceeds the allowed size.",
+            detail="The request exceeds the allowed size.",
             correlation_id=correlation_id,
         )
 
