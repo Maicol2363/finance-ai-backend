@@ -28,12 +28,29 @@ class DashboardRepository:
     ) -> tuple[Decimal, Decimal]:
         income_stmt = text(
             """
-            SELECT COALESCE(SUM(i.amount), 0)
-            FROM income i
-            JOIN currency c ON c.id = i.currency_id
-            WHERE i.user_id = :user_id
-              AND c.code = :currency
-              AND i.date BETWEEN :start AND :end
+            SELECT
+              COALESCE((
+                SELECT SUM(i.amount)
+                FROM income i
+                JOIN currency c ON c.id = i.currency_id
+                WHERE i.user_id = :user_id
+                  AND c.code = :currency
+                  AND i.date BETWEEN :start AND :end
+              ), 0)
+              + COALESCE((
+                SELECT SUM(am.amount)
+                FROM financial_transaction ft
+                JOIN account_movement am
+                  ON am.transaction_id = ft.id AND am.user_id = ft.user_id
+                JOIN account a ON a.id = am.account_id AND a.user_id = am.user_id
+                JOIN currency c ON c.id = a.currency_id
+                WHERE ft.user_id = :user_id
+                  AND ft.type = 'income'
+                  AND ft.status = 'confirmed'
+                  AND am.amount > 0
+                  AND c.code = :currency
+                  AND (ft.occurred_at AT TIME ZONE 'UTC')::date BETWEEN :start AND :end
+              ), 0)
             """
         )
         total_incomes = self.session.execute(
@@ -334,8 +351,8 @@ class DashboardRepository:
                 date_trunc('month', CAST(:today AS date)) - interval '1 month',
                 interval '1 month'
               )::date AS m
-            ), inc AS (
-              SELECT date_trunc('month', i.date)::date AS m, SUM(i.amount) AS total
+            ), income_rows AS (
+              SELECT i.date AS income_date, i.amount
               FROM income i
               JOIN currency c ON c.id = i.currency_id
               WHERE i.user_id = :user_id
@@ -343,6 +360,25 @@ class DashboardRepository:
                 AND i.date >=
                   (date_trunc('month', CAST(:today AS date)) - interval '6 months')::date
                 AND i.date < date_trunc('month', CAST(:today AS date))::date
+              UNION ALL
+              SELECT (ft.occurred_at AT TIME ZONE 'UTC')::date AS income_date, am.amount
+              FROM financial_transaction ft
+              JOIN account_movement am
+                ON am.transaction_id = ft.id AND am.user_id = ft.user_id
+              JOIN account a ON a.id = am.account_id AND a.user_id = am.user_id
+              JOIN currency c ON c.id = a.currency_id
+              WHERE ft.user_id = :user_id
+                AND ft.type = 'income'
+                AND ft.status = 'confirmed'
+                AND am.amount > 0
+                AND c.code = :currency
+                AND (ft.occurred_at AT TIME ZONE 'UTC')::date >=
+                  (date_trunc('month', CAST(:today AS date)) - interval '6 months')::date
+                AND (ft.occurred_at AT TIME ZONE 'UTC')::date
+                  < date_trunc('month', CAST(:today AS date))::date
+            ), inc AS (
+              SELECT date_trunc('month', income_date)::date AS m, SUM(amount) AS total
+              FROM income_rows
               GROUP BY 1
             )
             SELECT

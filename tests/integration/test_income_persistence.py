@@ -21,9 +21,11 @@ from finance_ai.core.errors import (
     IncomeNotFoundError,
     IncomeSourceUnavailableError,
 )
+from finance_ai.dashboard.repository import DashboardRepository
 from finance_ai.db.account_uow import SQLAlchemyAccountUnitOfWork
-from finance_ai.db.models.catalogs import IncomeSource
+from finance_ai.db.models.catalogs import IncomeSource, Incomesource
 from finance_ai.db.models.identity import AppUser
+from finance_ai.db.models.income import Income
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.transactions import AccountMovement, FinancialTransaction
 from finance_ai.db.seeds import seed_shared_data
@@ -160,6 +162,54 @@ def test_income_lifecycle_recalculates_once_and_reverses_on_delete() -> None:
     service.delete(owner_id=owner, income_id=created.id)
     assert service.list(owner_id=owner) == []
     assert account_balance(owner, second) == Decimal("100.00")
+
+
+def test_dashboard_counts_modern_and_legacy_income_on_their_stored_calendar_date() -> None:
+    owner = create_owner("dashboard-income-owner@example.com")
+    account_id = create_account(owner, "Cash")
+    income_date = date(2026, 10, 16)
+    service = IncomeService(get_session_factory())
+    service.create(
+        owner_id=owner,
+        request=IncomeWriteRequest(account_id=account_id, amount="4500.00", date=income_date),
+    )
+    with get_session_factory()() as session:
+        cop_id = session.scalar(select(Currency.id).where(Currency.code == "COP"))
+        legacy_source_id = session.scalar(
+            select(Incomesource.id).where(Incomesource.name == "Other")
+        )
+        assert cop_id is not None and legacy_source_id is not None
+        session.add(
+            Income(
+                user_id=owner,
+                income_source_id=legacy_source_id,
+                currency_id=cop_id,
+                amount=Decimal("300.00"),
+                date=income_date,
+                description="Legacy historical income",
+            )
+        )
+        session.commit()
+
+    with get_session_factory()() as session:
+        repository = DashboardRepository(session)
+        incomes, expenses = repository.get_flow_totals(
+            user_id=owner,
+            currency="COP",
+            start_date=income_date,
+            end_date=income_date,
+            tz="America/Bogota",
+        )
+        average_3m, average_6m, _ = repository.get_income_average(
+            user_id=owner,
+            currency="COP",
+            today=date(2026, 11, 16),
+        )
+
+    assert incomes == Decimal("4800.00")
+    assert expenses == Decimal("0")
+    assert average_3m == Decimal("1600.0000000000000000")
+    assert average_6m == Decimal("800.0000000000000000")
 
 
 def test_foreign_and_inactive_references_are_rejected_without_partial_writes() -> None:

@@ -86,3 +86,11 @@ uv run pip-audit
 - `tests/test_error_handling.py`
 
 No commit, push, or merge was performed. For physical UI validation, the isolated test API is running at `http://127.0.0.1:8016`; its private environment file is `/tmp/finance-audit-test-env.json` with mode `0600`. The integration fixtures drop/recreate the test schema, so do not run the integration suite while the physical UI session is using that API.
+
+## Follow-up verification — 2026-10-16
+
+The income amount boundary now rejects values above `9999999999999999.99` during request validation, before PostgreSQL can raise a numeric overflow. The dashboard flow totals and income averages now include confirmed income movements from the canonical financial transaction model as well as legacy income rows. A regression verifies the exact stored calendar day in the `America/Bogota` request and both storage paths.
+
+The refreshed isolated full suite passes 415 tests (0 skipped), with 89% branch coverage. Ruff, format, mypy, OpenAPI drift, and `git diff --check` pass. The updated API was restarted on `127.0.0.1:8016` without a migration or reset of its existing database. Live black-box verification using a pre-existing synthetic account showed dashboard income `4500.00` for `2026-10-16`, oversized income returns 422, and deleting the synthetic income returns the dashboard total to `0.00`.
+
+History date filters use inclusive UTC calendar-day bounds for confirmed transactions. This matches the date-only income and transfer contracts, which store their selected day as UTC midnight and return that stored UTC date. In the Flutter UI, converting that timestamp to Bogota local time renders the previous evening (`19:00`); the UI should display the API's date-only value for income/transfer instead of localizing the timestamp. Expense timestamps can retain timezone-aware display semantics.
