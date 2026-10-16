@@ -301,14 +301,15 @@ class TextCaptureService:
                     category_id=command.category_id,
                     capture_source=CAPTURE_SOURCE,
                 ),
+                source_proposal_id=proposal_id,
             )
             return TextCaptureConfirmation(
                 proposal_id=proposal_id,
                 intent=command.intent,
                 record_id=expense.id,
-                amount=format_money(command.amount),
+                amount=format_money(expense.amount),
                 currency_code=expense.currency.code,
-                date=command.date,
+                date=expense.occurred_at.astimezone(client_now.tzinfo).date(),
                 description=expense.store,
                 account_name=expense.account_name,
             )
@@ -323,6 +324,7 @@ class TextCaptureService:
                     income_source_id=command.income_source_id,
                 ),
                 capture_source=CAPTURE_SOURCE,
+                source_proposal_id=proposal_id,
             )
             return TextCaptureConfirmation(
                 proposal_id=proposal_id,
@@ -353,6 +355,7 @@ class TextCaptureService:
                 description=command.description,
             ),
             capture_source=CAPTURE_SOURCE,
+            source_proposal_id=proposal_id,
         )
         return TextCaptureConfirmation(
             proposal_id=proposal_id,

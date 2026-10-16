@@ -55,6 +55,7 @@ class ExpenseService:
         *,
         owner_id: int,
         command: CreateExpenseCommand,
+        source_proposal_id: UUID | None = None,
     ) -> ExpenseRecord:
         if command.amount <= Decimal("0") or command.amount > MONEY_MAX:
             raise RequestInvalidError({"amount": [f"Amount must be between 0.01 and {MONEY_MAX}."]})
@@ -62,6 +63,12 @@ class ExpenseService:
             raise RequestInvalidError({"merchant": ["Merchant cannot be empty."]})
 
         with self.uow_factory() as uow:
+            if source_proposal_id is not None:
+                existing = uow.expenses.find_by_source_proposal_id(
+                    owner_id=owner_id, proposal_id=source_proposal_id
+                )
+                if existing is not None:
+                    return existing
             account_currency = uow.expenses.active_account_currency(
                 owner_id=owner_id, account_id=command.account_id
             )
@@ -82,6 +89,7 @@ class ExpenseService:
                 category_id=command.category_id,
                 note=command.note,
                 capture_source=command.capture_source,
+                source_proposal_id=source_proposal_id,
             )
             uow.flush()
             uow.commit()

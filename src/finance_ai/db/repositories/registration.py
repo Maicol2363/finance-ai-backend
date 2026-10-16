@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from finance_ai.auth.repositories import CurrencyRecord, UserRecord
 from finance_ai.core.errors import ServiceUnavailableError
 from finance_ai.db.models.catalogs import Category, IncomeSource
-from finance_ai.db.models.identity import AppUser
+from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.seeds import RegistrationCatalogTemplate
 
@@ -35,9 +35,13 @@ class SQLAlchemyUserRepository:
         )
 
     def add(self, *, email: str, password_hash: str, preferred_currency_id: int) -> UserRecord:
+        user_role_id = self.session.scalar(select(Role.id).where(Role.name == "user"))
+        if user_role_id is None:
+            raise ServiceUnavailableError
         user = AppUser(
             email=email,
             password_hash=password_hash,
+            role_id=user_role_id,
             preferred_currency_id=preferred_currency_id,
             is_active=True,
         )

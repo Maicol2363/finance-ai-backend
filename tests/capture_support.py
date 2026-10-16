@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -54,22 +55,39 @@ class FakeGateway(TextCaptureGateway):
 class FakeExpenses:
     def __init__(self) -> None:
         self.commands: list[Any] = []
+        self.proposal_ids: list[UUID | None] = []
+        self._results: dict[UUID, Any] = {}
 
-    def create(self, *, owner_id: int, command: Any) -> Any:
+    def create(self, *, owner_id: int, command: Any, source_proposal_id: UUID | None = None) -> Any:
+        if source_proposal_id is not None and source_proposal_id in self._results:
+            return self._results[source_proposal_id]
         self.commands.append((owner_id, command))
-        return SimpleNamespace(
+        self.proposal_ids.append(source_proposal_id)
+        result = SimpleNamespace(
             id=700 + len(self.commands),
+            amount=command.amount,
+            occurred_at=command.occurred_at,
             currency=SimpleNamespace(code="COP"),
             store=command.merchant,
             account_name="Efectivo",
         )
+        if source_proposal_id is not None:
+            self._results[source_proposal_id] = result
+        return result
 
 
 class FakeIncomes:
     def __init__(self) -> None:
         self.requests: list[Any] = []
 
-    def create(self, *, owner_id: int, request: Any, capture_source: str = "manual") -> Any:
+    def create(
+        self,
+        *,
+        owner_id: int,
+        request: Any,
+        capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
+    ) -> Any:
         self.requests.append((owner_id, request, capture_source))
         return SimpleNamespace(
             id=800 + len(self.requests),
@@ -85,7 +103,14 @@ class FakeTransfers:
     def __init__(self) -> None:
         self.requests: list[Any] = []
 
-    def create(self, *, owner_id: int, request: Any, capture_source: str = "manual") -> Any:
+    def create(
+        self,
+        *,
+        owner_id: int,
+        request: Any,
+        capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
+    ) -> Any:
         self.requests.append((owner_id, request, capture_source))
         return SimpleNamespace(
             id=900 + len(self.requests),

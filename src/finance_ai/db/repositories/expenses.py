@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 if TYPE_CHECKING:
     from finance_ai.receipts.schemas import ConfirmedReceiptItem
@@ -82,6 +83,20 @@ class SQLAlchemyExpenseRepository:
         record = self._expense_record(row)
         return self._populate_receipt_items(owner_id=owner_id, record=record, receipt=row[1])
 
+    def find_by_source_proposal_id(
+        self, *, owner_id: int, proposal_id: UUID
+    ) -> ExpenseRecord | None:
+        transaction_id = self.session.scalar(
+            select(FinancialTransaction.id).where(
+                FinancialTransaction.user_id == owner_id,
+                FinancialTransaction.source_proposal_id == proposal_id,
+                FinancialTransaction.transaction_type == "expense",
+            )
+        )
+        if transaction_id is None:
+            return None
+        return self.find_by_transaction_id(owner_id=owner_id, transaction_id=transaction_id)
+
     def active_account_currency(
         self, *, owner_id: int, account_id: int
     ) -> CurrencyReference | None:
@@ -115,6 +130,7 @@ class SQLAlchemyExpenseRepository:
         category_id: int | None = None,
         note: str | None = None,
         capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> ExpenseRecord:
         normalized = merchant.strip().lower()
         store = self.session.execute(
@@ -147,6 +163,7 @@ class SQLAlchemyExpenseRepository:
             occurred_at=occurred_at,
             description=merchant.strip(),
             capture_source=capture_source,
+            source_proposal_id=source_proposal_id,
         )
         self.session.add(transaction)
         self.session.flush()

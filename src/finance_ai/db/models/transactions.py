@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -43,6 +45,9 @@ class FinancialTransaction(Base):
             name="income_source_only_for_income",
         ),
         UniqueConstraint("id", "user_id", name="uq_financial_transaction_id_user_id"),
+        UniqueConstraint(
+            "user_id", "source_proposal_id", name="uq_financial_transaction_source_proposal"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -52,6 +57,7 @@ class FinancialTransaction(Base):
     income_source_id: Mapped[int | None] = mapped_column(
         ForeignKey("income_source.id", ondelete="SET NULL")
     )
+    source_proposal_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     transaction_type: Mapped[str] = mapped_column("type", String(24), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

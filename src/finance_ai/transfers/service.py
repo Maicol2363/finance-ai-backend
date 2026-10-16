@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -20,10 +21,21 @@ class TransferService:
         self.session_factory = session_factory
 
     def create(
-        self, *, owner_id: int, request: TransferCreateRequest, capture_source: str = "manual"
+        self,
+        *,
+        owner_id: int,
+        request: TransferCreateRequest,
+        capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> TransferRecord:
         with self.session_factory() as session, session.begin():
             repository = TransferRepository(session)
+            if source_proposal_id is not None:
+                existing = repository.find_by_source_proposal_id(
+                    owner_id=owner_id, proposal_id=source_proposal_id
+                )
+                if existing is not None:
+                    return existing
             destination_amount = self._validate_references(
                 repository, owner_id=owner_id, request=request
             )
@@ -32,6 +44,7 @@ class TransferService:
                 request=request,
                 destination_amount=destination_amount,
                 capture_source=capture_source,
+                source_proposal_id=source_proposal_id,
             )
             record = repository.get(owner_id=owner_id, transfer_id=transfer_id)
             if record is None:

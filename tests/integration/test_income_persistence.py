@@ -4,6 +4,7 @@ import os
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from alembic import command as alembic_command
@@ -205,8 +206,15 @@ def test_failed_create_rolls_back_transaction_and_movement(monkeypatch: pytest.M
         owner_id: int,
         request: IncomeWriteRequest,
         capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> int:
-        original(repository, owner_id=owner_id, request=request, capture_source=capture_source)
+        original(
+            repository,
+            owner_id=owner_id,
+            request=request,
+            capture_source=capture_source,
+            source_proposal_id=source_proposal_id,
+        )
         raise RuntimeError("synthetic failure after flush")
 
     monkeypatch.setattr(IncomeRepository, "create", fail_after_staging)
