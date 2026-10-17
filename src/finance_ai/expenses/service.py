@@ -57,6 +57,21 @@ class ExpenseService:
         command: CreateExpenseCommand,
         source_proposal_id: UUID | None = None,
     ) -> ExpenseRecord:
+        record, _ = self.create_with_replay(
+            owner_id=owner_id,
+            command=command,
+            source_proposal_id=source_proposal_id,
+        )
+        return record
+
+    def create_with_replay(
+        self,
+        *,
+        owner_id: int,
+        command: CreateExpenseCommand,
+        source_proposal_id: UUID | None,
+    ) -> tuple[ExpenseRecord, bool]:
+        """Creates a text-capture expense and reports whether it was a replay."""
         if command.amount <= Decimal("0") or command.amount > MONEY_MAX:
             raise RequestInvalidError({"amount": [f"Amount must be between 0.01 and {MONEY_MAX}."]})
         if not command.merchant.strip():
@@ -68,7 +83,7 @@ class ExpenseService:
                     owner_id=owner_id, proposal_id=source_proposal_id
                 )
                 if existing is not None:
-                    return existing
+                    return existing, True
             account_currency = uow.expenses.active_account_currency(
                 owner_id=owner_id, account_id=command.account_id
             )
@@ -93,7 +108,7 @@ class ExpenseService:
             )
             uow.flush()
             uow.commit()
-            return created
+            return created, False
 
     def confirm_receipt_proposal(
         self,
@@ -251,6 +266,15 @@ class ExpenseService:
     def get(self, *, owner_id: int, expense_id: int) -> ExpenseRecord:
         with self.uow_factory() as uow:
             expense = uow.expenses.find_owned(owner_id=owner_id, expense_id=expense_id)
+        if expense is None:
+            raise ExpenseNotFoundError
+        return expense
+
+    def get_by_transaction_id(self, *, owner_id: int, transaction_id: int) -> ExpenseRecord:
+        with self.uow_factory() as uow:
+            expense = uow.expenses.find_by_transaction_id(
+                owner_id=owner_id, transaction_id=transaction_id
+            )
         if expense is None:
             raise ExpenseNotFoundError
         return expense

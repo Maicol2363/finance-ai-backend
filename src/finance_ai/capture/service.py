@@ -27,7 +27,7 @@ from finance_ai.capture.grounding import (
     finalize,
     ground,
 )
-from finance_ai.capture.repository import TextProposalRepository
+from finance_ai.capture.repository import CaptureOperationRepository, TextProposalRepository
 from finance_ai.capture.schemas import (
     CAPTURE_SOURCE,
     AccountRef,
@@ -288,8 +288,16 @@ class TextCaptureService:
         command: TextProposalConfirmRequest,
         client_now: datetime,
     ) -> TextCaptureConfirmation:
+        recovered = self._recover_confirmation(
+            owner_id=owner_id,
+            proposal_id=proposal_id,
+            client_now=client_now,
+        )
+        if recovered is not None:
+            return recovered
+
         if command.intent is CaptureIntent.EXPENSE:
-            expense = self.expenses.create(
+            expense, replayed = self.expenses.create_with_replay(
                 owner_id=owner_id,
                 command=CreateExpenseCommand(
                     account_id=command.account_id,
@@ -312,9 +320,10 @@ class TextCaptureService:
                 date=expense.occurred_at.astimezone(client_now.tzinfo).date(),
                 description=expense.store,
                 account_name=expense.account_name,
+                replayed=replayed,
             )
         if command.intent is CaptureIntent.INCOME:
-            income = self.incomes.create(
+            income, replayed = self.incomes.create_with_replay(
                 owner_id=owner_id,
                 request=IncomeWriteRequest(
                     account_id=command.account_id,
@@ -335,12 +344,13 @@ class TextCaptureService:
                 date=income.date,
                 description=income.description,
                 account_name=income.account_name,
+                replayed=replayed,
             )
         if command.destination_account_id is None:
             raise RequestInvalidError(
                 {"destination_account_id": ["Choose the account that received the money."]}
             )
-        transfer = self.transfers.create(
+        transfer, replayed = self.transfers.create_with_replay(
             owner_id=owner_id,
             request=TransferCreateRequest(
                 source_account_id=command.account_id,
@@ -367,7 +377,62 @@ class TextCaptureService:
             description=transfer.description,
             account_name=transfer.source_account.name,
             destination_account_name=transfer.destination_account.name,
+            replayed=replayed,
         )
+
+    def _recover_confirmation(
+        self, *, owner_id: int, proposal_id: UUID, client_now: datetime
+    ) -> TextCaptureConfirmation | None:
+        """Returns the first committed operation, independent of the retry's edited intent."""
+        with self.session_factory() as session:
+            saved = CaptureOperationRepository(session).find_confirmed(owner_id, proposal_id)
+        if saved is None:
+            return None
+
+        transaction_id, transaction_type = saved
+        if transaction_type == CaptureIntent.EXPENSE.value:
+            expense = self.expenses.get_by_transaction_id(
+                owner_id=owner_id, transaction_id=transaction_id
+            )
+            return TextCaptureConfirmation(
+                proposal_id=proposal_id,
+                intent=CaptureIntent.EXPENSE,
+                record_id=expense.id,
+                amount=format_money(expense.amount),
+                currency_code=expense.currency.code,
+                date=expense.occurred_at.astimezone(client_now.tzinfo).date(),
+                description=expense.store,
+                account_name=expense.account_name,
+                replayed=True,
+            )
+        if transaction_type == CaptureIntent.INCOME.value:
+            income = self.incomes.get(owner_id=owner_id, income_id=transaction_id)
+            return TextCaptureConfirmation(
+                proposal_id=proposal_id,
+                intent=CaptureIntent.INCOME,
+                record_id=income.id,
+                amount=format_money(income.amount),
+                currency_code=income.currency_code,
+                date=income.date,
+                description=income.description,
+                account_name=income.account_name,
+                replayed=True,
+            )
+        if transaction_type == CaptureIntent.TRANSFER.value:
+            transfer = self.transfers.get(owner_id=owner_id, transfer_id=transaction_id)
+            return TextCaptureConfirmation(
+                proposal_id=proposal_id,
+                intent=CaptureIntent.TRANSFER,
+                record_id=transfer.id,
+                amount=format_money(transfer.source_amount),
+                currency_code=transfer.source_account.currency_code,
+                date=transfer.date,
+                description=transfer.description,
+                account_name=transfer.source_account.name,
+                destination_account_name=transfer.destination_account.name,
+                replayed=True,
+            )
+        raise RuntimeError("Text proposal is linked to an unsupported transaction type")
 
 
 def _occurred_at(day: dt.date, client_now: datetime) -> datetime:

@@ -94,3 +94,14 @@ The income amount boundary now rejects values above `9999999999999999.99` during
 The refreshed isolated full suite passes 415 tests (0 skipped), with 89% branch coverage. Ruff, format, mypy, OpenAPI drift, and `git diff --check` pass. The updated API was restarted on `127.0.0.1:8016` without a migration or reset of its existing database. Live black-box verification using a pre-existing synthetic account showed dashboard income `4500.00` for `2026-10-16`, oversized income returns 422, and deleting the synthetic income returns the dashboard total to `0.00`.
 
 History date filters use inclusive UTC calendar-day bounds for confirmed transactions. This matches the date-only income and transfer contracts, which store their selected day as UTC midnight and return that stored UTC date. In the Flutter UI, converting that timestamp to Bogota local time renders the previous evening (`19:00`); the UI should display the API's date-only value for income/transfer instead of localizing the timestamp. Expense timestamps can retain timezone-aware display semantics.
+
+## PR review follow-up — 2026-10-17
+
+The review on PR #24 identified two valid retry cases in AI capture confirmation:
+
+- A financial operation could commit before the proposal update failed; retrying would return the existing record with `replayed=false`, producing a misleading HTTP 201.
+- A retry with an edited intent could search only for the new transaction type and collide with the per-user idempotency key for the original operation.
+
+The confirmation path now resolves a confirmed operation by `(owner_id, proposal_id)` before dispatching by intent, reconstructs the original expense, income, or transfer, and marks recovered records as replays. Expense, income, and transfer creation paths also report whether an idempotent result was newly created or reused. Regression coverage checks recovery after proposal-update failure, changed-intent retry, and replay flags for expense, income, and transfer.
+
+Validation on 2026-10-17: focused unit tests pass (37/37); Ruff and mypy pass. PostgreSQL integration tests were not run locally because `FINANCE_AI_TEST_DATABASE_URL` is unset; PR CI must validate those database-backed cases. No deployment, merge, or production database operation was performed.

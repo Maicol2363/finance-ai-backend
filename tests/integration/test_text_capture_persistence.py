@@ -248,7 +248,7 @@ def test_confirmation_retry_after_financial_commit_does_not_duplicate_expense(
             )
         ).all()
     assert len(persisted) == 1
-    assert retried.replayed is False
+    assert retried.replayed is True
     assert retried.record_id == persisted[0].id
     assert retried.amount == "15900.00"
     assert retried.date == proposal.date
@@ -321,6 +321,7 @@ def test_confirmation_retry_after_commit_returns_persisted_income_or_transfer(
             )
         ).all()
     assert len(persisted) == 1
+    assert retried.replayed is True
     assert retried.amount == "12000.00" if intent is CaptureIntent.TRANSFER else "20000.00"
     assert retried.date == proposal.date
     assert balance(owner, cash) == (
@@ -329,6 +330,47 @@ def test_confirmation_retry_after_commit_returns_persisted_income_or_transfer(
     assert balance(owner, nequi) == (
         Decimal("50000.00") if intent is CaptureIntent.INCOME else Decimal("38000.00")
     )
+
+
+def test_retry_with_changed_intent_returns_first_committed_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = create_owner("capture-intent-change@example.test")
+    cash = create_account(owner, "Efectivo")
+    service = build(raw(intent="expense", amount=15900, description="Almuerzo", account="Efectivo"))
+    proposal = propose(service, owner, "Almorcé por 15900")
+    command = TextProposalConfirmRequest(
+        intent=CaptureIntent.EXPENSE,
+        amount="15900.00",  # type: ignore[arg-type]
+        date=proposal.date,  # type: ignore[arg-type]
+        description="Almuerzo",
+        account_id=cash,
+    )
+    original_update = TextProposalRepository.update
+    fail_once = True
+
+    def fail_after_operation_commit(*args: object, **kwargs: object) -> None:
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            raise RuntimeError("injected proposal write failure")
+        original_update(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(TextProposalRepository, "update", fail_after_operation_commit)
+    with pytest.raises(RuntimeError, match="injected proposal write failure"):
+        service.confirm(owner_id=owner, proposal_id=proposal.proposal_id, command=command)
+
+    retried = service.confirm(
+        owner_id=owner,
+        proposal_id=proposal.proposal_id,
+        command=command.model_copy(update={"intent": CaptureIntent.INCOME}),
+    )
+
+    assert retried.replayed is True
+    assert retried.intent is CaptureIntent.EXPENSE
+    assert retried.amount == "15900.00"
+    assert capture_sources(owner) == {"expense": "text_ai"}
+    assert balance(owner, cash) == Decimal("84100.00")
 
 
 def test_confirming_an_income_and_a_transfer_uses_the_same_atomic_operations() -> None:

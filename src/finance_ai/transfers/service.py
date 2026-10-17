@@ -28,6 +28,23 @@ class TransferService:
         capture_source: str = "manual",
         source_proposal_id: UUID | None = None,
     ) -> TransferRecord:
+        record, _ = self.create_with_replay(
+            owner_id=owner_id,
+            request=request,
+            capture_source=capture_source,
+            source_proposal_id=source_proposal_id,
+        )
+        return record
+
+    def create_with_replay(
+        self,
+        *,
+        owner_id: int,
+        request: TransferCreateRequest,
+        capture_source: str,
+        source_proposal_id: UUID | None,
+    ) -> tuple[TransferRecord, bool]:
+        """Creates a text-capture transfer and reports whether it was a replay."""
         with self.session_factory() as session, session.begin():
             repository = TransferRepository(session)
             if source_proposal_id is not None:
@@ -35,7 +52,7 @@ class TransferService:
                     owner_id=owner_id, proposal_id=source_proposal_id
                 )
                 if existing is not None:
-                    return existing
+                    return existing, True
             destination_amount = self._validate_references(
                 repository, owner_id=owner_id, request=request
             )
@@ -49,7 +66,14 @@ class TransferService:
             record = repository.get(owner_id=owner_id, transfer_id=transfer_id)
             if record is None:
                 raise RuntimeError("New transfer disappeared")
-            return record
+            return record, False
+
+    def get(self, *, owner_id: int, transfer_id: int) -> TransferRecord:
+        with self.session_factory() as session:
+            record = TransferRepository(session).get(owner_id=owner_id, transfer_id=transfer_id)
+        if record is None:
+            raise RuntimeError("Confirmed transfer disappeared")
+        return record
 
     @staticmethod
     def _validate_references(

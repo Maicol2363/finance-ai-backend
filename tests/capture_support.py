@@ -75,6 +75,17 @@ class FakeExpenses:
             self._results[source_proposal_id] = result
         return result
 
+    def create_with_replay(
+        self, *, owner_id: int, command: Any, source_proposal_id: UUID | None
+    ) -> tuple[Any, bool]:
+        existing = self._results.get(source_proposal_id) if source_proposal_id is not None else None
+        if existing is not None:
+            return existing, True
+        return (
+            self.create(owner_id=owner_id, command=command, source_proposal_id=source_proposal_id),
+            False,
+        )
+
 
 class FakeIncomes:
     def __init__(self) -> None:
@@ -98,6 +109,9 @@ class FakeIncomes:
             account_name="Nequi",
         )
 
+    def create_with_replay(self, **kwargs: Any) -> tuple[Any, bool]:
+        return self.create(**kwargs), False
+
 
 class FakeTransfers:
     def __init__(self) -> None:
@@ -120,6 +134,9 @@ class FakeTransfers:
             date=request.date,
             description=request.description,
         )
+
+    def create_with_replay(self, **kwargs: Any) -> tuple[Any, bool]:
+        return self.create(**kwargs), False
 
 
 def build_service(
