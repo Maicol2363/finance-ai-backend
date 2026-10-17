@@ -11,9 +11,12 @@ import math
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 MONEY_MAX = Decimal("9999999999.99")
+# A transfer between the user's own accounts is stored in movements (18 digits), unlike
+# expense and income rows (12 digits), so it accepts a wider range.
+TRANSFER_MONEY_MAX = Decimal("9999999999999999.99")
 _INTENTS = frozenset({"expense", "income", "transfer"})
 _CENTS = Decimal("0.01")
 
@@ -29,13 +32,10 @@ def _clean_amount(value: Any) -> Decimal | None:
     if isinstance(value, bool) or value is None:
         return None
     try:
-        amount = Decimal(str(value).strip())
+        amount = Decimal(str(value).strip()).quantize(_CENTS, rounding=ROUND_HALF_UP)
     except InvalidOperation, ValueError:
         return None
     if not amount.is_finite() or amount <= 0:
-        return None
-    amount = amount.quantize(_CENTS, rounding=ROUND_HALF_UP)
-    if amount <= 0 or amount > MONEY_MAX:
         return None
     return amount
 
@@ -104,3 +104,13 @@ class RawInterpretation(BaseModel):
     @classmethod
     def normalize_reference(cls, value: Any) -> str | None:
         return _clean_text(value, 100)
+
+    @model_validator(mode="after")
+    def cap_amounts_by_intent(self) -> RawInterpretation:
+        """Money range depends on what is recorded: transfers live in wider movements."""
+        ceiling = TRANSFER_MONEY_MAX if self.intent == "transfer" else MONEY_MAX
+        if self.amount is not None and self.amount > ceiling:
+            self.amount = None
+        if self.destination_amount is not None and self.destination_amount > ceiling:
+            self.destination_amount = None
+        return self

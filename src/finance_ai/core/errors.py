@@ -452,6 +452,17 @@ class TransferSourceDestinationMismatchError(AppError):
         )
 
 
+class TransferInsufficientFundsError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=422,
+            code="transfer_insufficient_funds",
+            title="Insufficient funds",
+            detail="The source account balance cannot cover this transfer.",
+            field_errors={"source_amount": ["Use an amount within the source balance."]},
+        )
+
+
 class TextProposalNotFoundError(AppError):
     def __init__(self) -> None:
         super().__init__(

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from finance_ai.core.errors import (
     TransferAccountUnavailableError,
     TransferDestinationAmountRequiredError,
+    TransferInsufficientFundsError,
     TransferSameAccountError,
     TransferSourceDestinationMismatchError,
 )
@@ -60,7 +61,15 @@ class TransferService:
                 and request.destination_amount != request.source_amount
             ):
                 raise TransferSourceDestinationMismatchError
-            return request.source_amount
-        if request.destination_amount is None:
+            destination_amount = request.source_amount
+        elif request.destination_amount is None:
             raise TransferDestinationAmountRequiredError
-        return request.destination_amount
+        else:
+            destination_amount = request.destination_amount
+        # An account cannot transfer money it does not have: the movement would push it
+        # negative. The check happens inside the same transaction that writes, against the
+        # row locked above, so two concurrent transfers cannot both pass.
+        available = repository.account_balance(owner_id=owner_id, account_id=source.id)
+        if available is None or available < request.source_amount:
+            raise TransferInsufficientFundsError
+        return destination_amount

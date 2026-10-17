@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 
@@ -15,9 +16,13 @@ from finance_ai.capture.grounding import (
     extract_amount_hint,
     finalize,
     ground,
+    has_oversized_amount,
     normalize_name,
 )
-from finance_ai.capture.interpretation import RawInterpretation
+from finance_ai.capture.interpretation import (
+    TRANSFER_MONEY_MAX,
+    RawInterpretation,
+)
 from finance_ai.capture.schemas import CaptureIntent, ProposalStatus, TextChoice
 from tests.capture_support import ACCOUNTS, CONTEXT, raw
 
@@ -332,6 +337,81 @@ def test_choices_for_unknown_accounts_are_ignored() -> None:
     assert state.account_id is None
 
 
+def test_oversized_amount_gets_an_explanation_not_a_generic_question() -> None:
+    state, outcome = resolve(
+        {"intent": "transfer"},
+        text="transfiere 2000000000000000000000000000 pesos a nequi",
+    )
+
+    assert state.amount is None
+    assert state.amount_too_large is True
+    assert outcome.clarification.field == "amount"
+    assert "demasiado grande" in outcome.clarification.question
+    assert "9.999.999.999,99" in outcome.clarification.question
+
+
+def test_oversized_destination_amount_is_explained() -> None:
+    state, outcome = resolve(
+        {
+            "intent": "transfer",
+            "amount": 50000,
+            "account": "Bancolombia",
+            "destination_account": "Dólares",
+        },
+        text="pasa 50000 de Bancolombia a Dólares, llegan 99999999999999999",
+    )
+
+    assert state.amount == Decimal("50000")
+    assert outcome.clarification.field == "destination_amount"
+    assert "demasiado grande" in outcome.clarification.question
+
+
+def test_has_oversized_amount_ignores_normal_text() -> None:
+    assert not has_oversized_amount("almorcé 15.900 en el Subway")
+    assert has_oversized_amount("me fueron 99999999999")
+
+
+def test_text_amount_hint_ignores_amounts_beyond_the_range() -> None:
+    assert extract_amount_hint("gasté 15000 en el cine") is not None
+    # An expense/income row tops at 9.999.999.999,99, a transfer reaches 16 digits.
+    assert extract_amount_hint("gasté 20000000000 en el cine") is None
+    assert (
+        extract_amount_hint(
+            "transfiere 20000000000000 pesos",
+            ceiling=TRANSFER_MONEY_MAX,
+        )
+        is not None
+    )
+    assert (
+        extract_amount_hint(
+            "transfiere 200000000000000000 pesos",
+            ceiling=TRANSFER_MONEY_MAX,
+        )
+        is None
+    )
+
+
+def test_transfer_message_allows_more_than_the_expense_limit() -> None:
+    state, outcome = resolve(
+        {"intent": "transfer"},
+        text="transfiere 99999999999999 pesos entre mis cuentas",
+    )
+
+    assert state.amount == Decimal("99999999999999.00")
+    assert outcome.clarification.field == "account"
+
+
+def test_transfer_message_explains_its_own_ceiling() -> None:
+    state, outcome = resolve(
+        {"intent": "transfer"},
+        text="transfiere 200000000000000000 pesos entre mis cuentas",
+    )
+
+    assert state.amount is None
+    assert state.amount_too_large is True
+    assert "9.999.999.999.999.999,99" in outcome.clarification.question
+
+
 def test_model_output_is_tolerated_when_malformed() -> None:
     parsed = RawInterpretation.model_validate(
         {
@@ -352,6 +432,22 @@ def test_model_output_is_tolerated_when_malformed() -> None:
     assert parsed.date is None
     assert parsed.description == "Taxi al aeropuerto"
     assert parsed.account is None
+
+
+@pytest.mark.parametrize(
+    ("absurd_number",),
+    [
+        ("1e600",),
+        ("1E-600",),
+        ("9" + "0" * 60,),
+        ("900e300",),
+    ],
+)
+def test_absurd_model_amounts_degrade_to_missing(absurd_number: str) -> None:
+    parsed = RawInterpretation.model_validate(
+        {"intent": "expense", "confidence": 0.9, "amount": absurd_number}
+    )
+    assert parsed.amount is None
 
 
 @pytest.mark.parametrize(

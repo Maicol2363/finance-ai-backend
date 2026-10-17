@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from finance_ai.db.models.accounts import Account
@@ -33,6 +33,38 @@ class TransferRepository:
             .join(Account, Account.currency_id == Currency.id)
             .where(Account.id == account_id)
         )
+
+    def account_balance(self, *, owner_id: int, account_id: int) -> Decimal | None:
+        """The account's real money: opening balance plus every confirmed movement.
+
+        The owning account row is already locked by create() before balances are read, so
+        concurrent transfers of the same funds serialize instead of both passing the check.
+        """
+        account = self.owned_account(owner_id=owner_id, account_id=account_id)
+        if account is None:
+            return None
+        moved = self.session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(
+                        AccountMovement.amount,
+                    ),
+                    Decimal("0.00"),
+                )
+            ).where(
+                AccountMovement.user_id == owner_id,
+                AccountMovement.account_id == account_id,
+                AccountMovement.transaction_id.in_(
+                    select(FinancialTransaction.id).where(
+                        and_(
+                            FinancialTransaction.user_id == owner_id,
+                            FinancialTransaction.status == "confirmed",
+                        )
+                    ),
+                ),
+            )
+        )
+        return account.opening_balance + Decimal(moved or 0)
 
     def create(
         self,

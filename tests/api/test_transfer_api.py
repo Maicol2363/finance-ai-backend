@@ -10,6 +10,7 @@ from finance_ai.auth.session_schemas import PublicAuthenticatedUser
 from finance_ai.core.errors import (
     TransferAccountUnavailableError,
     TransferDestinationAmountRequiredError,
+    TransferInsufficientFundsError,
     TransferSameAccountError,
     TransferSourceDestinationMismatchError,
 )
@@ -105,6 +106,7 @@ def test_transfer_failures_use_safe_contract(
             422,
             "transfer_source_destination_mismatch",
         ),
+        (TransferInsufficientFundsError(), 422, "transfer_insufficient_funds"),
     ]
     for failure, status, code in cases:
         service.failure = failure

@@ -16,7 +16,11 @@ from difflib import SequenceMatcher
 from typing import Literal
 
 from finance_ai.capture.context import AccountEntry, CaptureContext, CatalogEntry
-from finance_ai.capture.interpretation import RawInterpretation
+from finance_ai.capture.interpretation import (
+    MONEY_MAX,
+    TRANSFER_MONEY_MAX,
+    RawInterpretation,
+)
 from finance_ai.capture.schemas import (
     CaptureIntent,
     Clarification,
@@ -62,6 +66,7 @@ class DraftState:
     account_candidates: tuple[int, ...] = ()
     destination_candidates: tuple[int, ...] = ()
     stated_currency: str | None = None
+    amount_too_large: bool = False
     description_asked: bool = False
     date_stated: bool = False
     intent_conflict: bool = False
@@ -98,7 +103,7 @@ _MULTIPLIERS = {
 }
 
 
-def extract_amount_hint(text: str) -> Decimal | None:
+def extract_amount_hint(text: str, *, ceiling: Decimal = MONEY_MAX) -> Decimal | None:
     """The one amount written in a message, for when the model missed it.
 
     Only an unambiguous reading is returned: exactly one candidate, and either a
@@ -121,7 +126,46 @@ def extract_amount_hint(text: str) -> Decimal | None:
             candidates.append(value)
     if len(candidates) != 1 or candidates[0] <= 0:
         return None
-    return candidates[0].quantize(Decimal("0.01"))
+    try:
+        amount = candidates[0].quantize(Decimal("0.01"))
+    except ArithmeticError:
+        return None
+    if amount > ceiling:
+        return None
+    return amount
+
+
+def has_oversized_amount(text: str, *, ceiling: Decimal = MONEY_MAX) -> bool:
+    """True when the text names a money-like number beyond the money range.
+
+    The tolerant interpretation degrades overshoots to a missing amount, which otherwise makes
+    the flow blindly re-ask "¿De cuánto fue?" forever; this flag lets the next question say why.
+    """
+    for match in _AMOUNT_WORD.finditer(text):
+        raw_number, word = match.group(1), (match.group(2) or "").lower()
+        digits = raw_number
+        if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", digits):
+            digits = re.sub(r"[.,]", "", digits)
+        else:
+            digits = digits.replace(",", ".")
+        try:
+            value = Decimal(digits)
+        except ArithmeticError:
+            continue
+        value *= _MULTIPLIERS.get(word, Decimal(1))
+        if (word or value >= 1000) and value > ceiling:
+            return True
+    return False
+
+
+def _format_ceiling(ceiling: Decimal) -> str:
+    whole, _, decimals = str(ceiling).partition(".")
+    grouped = format(int(whole), ",d").replace(",", ".")
+    return f"${grouped},{decimals}"
+
+
+def _intent_ceiling(intent: CaptureIntent | None) -> Decimal:
+    return TRANSFER_MONEY_MAX if intent is CaptureIntent.TRANSFER else MONEY_MAX
 
 
 def normalize_name(value: str) -> str:
@@ -179,11 +223,17 @@ def ground(
         stated_currency=raw.currency,
     )
 
+    ceiling = _intent_ceiling(state.intent)
+    oversized = has_oversized_amount(text, ceiling=ceiling)
     if state.amount is None:
-        hint = extract_amount_hint(text)
+        hint = extract_amount_hint(text, ceiling=ceiling)
         if hint is not None:
             state.amount = hint
             state.notes.append("Tomé el monto de tu mensaje; revísalo.")
+        elif oversized:
+            state.amount_too_large = True
+    elif state.destination_amount is None and oversized:
+        state.amount_too_large = True
 
     if raw.date is not None:
         if raw.date > today:
@@ -301,6 +351,16 @@ def finalize(state: DraftState, context: CaptureContext) -> Outcome:
 
     if state.intent is None:
         if state.amount is None and state.account_id is None:
+            if state.amount_too_large:
+                return Outcome(
+                    status=ProposalStatus.UNRECOGNIZED,
+                    one_tap=False,
+                    message=(
+                        "El monto que escribiste es demasiado grande: manejo montos hasta "
+                        f"{_format_ceiling(MONEY_MAX)}. Cuéntame otra vez qué pasó, "
+                        "con un monto menor."
+                    ),
+                )
             return Outcome(
                 status=ProposalStatus.UNRECOGNIZED,
                 one_tap=False,
@@ -315,7 +375,13 @@ def finalize(state: DraftState, context: CaptureContext) -> Outcome:
     intent = state.intent
 
     if state.amount is None:
-        return _needs(Clarification(field="amount", question="¿De cuánto fue?"))
+        question = "¿De cuánto fue?"
+        if state.amount_too_large:
+            question = (
+                "Ese monto es demasiado grande: manejo montos hasta "
+                f"{_format_ceiling(_intent_ceiling(intent))}. ¿De cuánto fue?"
+            )
+        return _needs(Clarification(field="amount", question=question))
 
     if state.account_id is None:
         candidates = list(state.account_candidates) or [a.id for a in context.accounts]
@@ -397,10 +463,16 @@ def finalize(state: DraftState, context: CaptureContext) -> Outcome:
     if destination.currency_code == source.currency_code:
         state.destination_amount = state.amount
     elif state.destination_amount is None:
+        question = f"¿Cuánto llegó a {destination.name} en {destination.currency_code}?"
+        if state.amount_too_large:
+            question = (
+                "Ese monto es demasiado grande: manejo montos hasta "
+                f"{_format_ceiling(TRANSFER_MONEY_MAX)}. " + question
+            )
         return _needs(
             Clarification(
                 field="destination_amount",
-                question=(f"¿Cuánto llegó a {destination.name} en {destination.currency_code}?"),
+                question=question,
             )
         )
     return _ready(state, source.currency_code)

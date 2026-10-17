@@ -18,6 +18,7 @@ from finance_ai.core.config import get_settings
 from finance_ai.core.errors import (
     TransferAccountUnavailableError,
     TransferDestinationAmountRequiredError,
+    TransferInsufficientFundsError,
     TransferSameAccountError,
     TransferSourceDestinationMismatchError,
 )
@@ -175,6 +176,33 @@ def test_cross_currency_transfer_stores_both_actual_amounts() -> None:
     assert record.destination_account.currency_code == "COP"
     assert balance(owner, source) == Decimal("900.00")
     assert balance(owner, destination) == Decimal("411000.00")
+
+
+def test_transfer_beyond_source_balance_is_rejected_and_saves_nothing() -> None:
+    owner = create_owner("overdraft-owner@example.com")
+    source = create_account(owner, "Cash", opening="1000000.00")
+    destination = create_account(owner, "Savings", opening="500000.00")
+
+    with pytest.raises(TransferInsufficientFundsError):
+        transfer_service().create(
+            owner_id=owner,
+            request=transfer_request(source, destination, "9000000.00"),
+        )
+    assert transaction_count() == 0
+    assert balance(owner, source) == Decimal("1000000.00")
+    assert balance(owner, destination) == Decimal("500000.00")
+
+    # The whole balance is always transferable, but one cent more is not.
+    transfer_service().create(
+        owner_id=owner, request=transfer_request(source, destination, "1000000.00")
+    )
+    with pytest.raises(TransferInsufficientFundsError):
+        transfer_service().create(
+            owner_id=owner,
+            request=transfer_request(destination, source, "500000.01"),
+        )
+    assert balance(owner, source) == Decimal("0.00")
+    assert balance(owner, destination) == Decimal("1500000.00")
 
 
 def test_transfer_rules_save_nothing_on_failure() -> None:
