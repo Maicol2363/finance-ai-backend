@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
+from uuid import UUID
 
 if TYPE_CHECKING:
     from finance_ai.receipts.schemas import ConfirmedReceiptItem
@@ -144,6 +145,10 @@ class ExpenseRepository(Protocol):
         self, *, owner_id: int, transaction_id: int
     ) -> ExpenseRecord | None: ...
 
+    def find_by_source_proposal_id(
+        self, *, owner_id: int, proposal_id: UUID
+    ) -> ExpenseRecord | None: ...
+
     def active_account_currency(
         self, *, owner_id: int, account_id: int
     ) -> CurrencyReference | None: ...
@@ -161,6 +166,7 @@ class ExpenseRepository(Protocol):
         category_id: int | None = None,
         note: str | None = None,
         capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> ExpenseRecord: ...
 
     def update(

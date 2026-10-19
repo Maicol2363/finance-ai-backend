@@ -1,5 +1,6 @@
 import os
 from collections.abc import Iterator
+from typing import cast
 
 # Must be set before any application modules are imported during pytest collection
 os.environ["FINANCE_AI_ENVIRONMENT"] = "test"
@@ -8,11 +9,13 @@ os.environ["FINANCE_AI_ENVIRONMENT"] = "test"
 os.environ["FINANCE_AI_LLM_PROVIDER"] = "gemini"
 
 import pytest
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, Table, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from finance_ai.capture.models import TextCaptureProposalModel
+from finance_ai.db.base import Base
+from finance_ai.db.models.transactions import FinancialTransaction
 
 
 @pytest.fixture
@@ -21,7 +24,11 @@ def drafts_engine() -> Iterator[Engine]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    TextCaptureProposalModel.__table__.create(engine)
+    tables = cast(
+        "list[Table]",
+        [TextCaptureProposalModel.__table__, FinancialTransaction.__table__],
+    )
+    Base.metadata.create_all(engine, tables=tables)
     yield engine
     engine.dispose()
 

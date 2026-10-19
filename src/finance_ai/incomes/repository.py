@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, time
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.engine import Row
@@ -49,7 +50,12 @@ class IncomeRepository:
         )
 
     def create(
-        self, *, owner_id: int, request: IncomeWriteRequest, capture_source: str = "manual"
+        self,
+        *,
+        owner_id: int,
+        request: IncomeWriteRequest,
+        capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> int:
         transaction = FinancialTransaction(
             user_id=owner_id,
@@ -59,6 +65,7 @@ class IncomeRepository:
             description=request.description,
             income_source_id=request.income_source_id,
             capture_source=capture_source,
+            source_proposal_id=source_proposal_id,
         )
         self.session.add(transaction)
         self.session.flush()
@@ -97,6 +104,15 @@ class IncomeRepository:
 
     def get(self, *, owner_id: int, income_id: int) -> IncomeRecord | None:
         statement = self._projection(owner_id).where(FinancialTransaction.id == income_id)
+        row = self.session.execute(statement).one_or_none()
+        return self._record(row) if row is not None else None
+
+    def find_by_source_proposal_id(
+        self, *, owner_id: int, proposal_id: UUID
+    ) -> IncomeRecord | None:
+        statement = self._projection(owner_id).where(
+            FinancialTransaction.source_proposal_id == proposal_id
+        )
         row = self.session.execute(statement).one_or_none()
         return self._record(row) if row is not None else None
 

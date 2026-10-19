@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -20,10 +21,38 @@ class TransferService:
         self.session_factory = session_factory
 
     def create(
-        self, *, owner_id: int, request: TransferCreateRequest, capture_source: str = "manual"
+        self,
+        *,
+        owner_id: int,
+        request: TransferCreateRequest,
+        capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> TransferRecord:
+        record, _ = self.create_with_replay(
+            owner_id=owner_id,
+            request=request,
+            capture_source=capture_source,
+            source_proposal_id=source_proposal_id,
+        )
+        return record
+
+    def create_with_replay(
+        self,
+        *,
+        owner_id: int,
+        request: TransferCreateRequest,
+        capture_source: str,
+        source_proposal_id: UUID | None,
+    ) -> tuple[TransferRecord, bool]:
+        """Creates a text-capture transfer and reports whether it was a replay."""
         with self.session_factory() as session, session.begin():
             repository = TransferRepository(session)
+            if source_proposal_id is not None:
+                existing = repository.find_by_source_proposal_id(
+                    owner_id=owner_id, proposal_id=source_proposal_id
+                )
+                if existing is not None:
+                    return existing, True
             destination_amount = self._validate_references(
                 repository, owner_id=owner_id, request=request
             )
@@ -32,11 +61,19 @@ class TransferService:
                 request=request,
                 destination_amount=destination_amount,
                 capture_source=capture_source,
+                source_proposal_id=source_proposal_id,
             )
             record = repository.get(owner_id=owner_id, transfer_id=transfer_id)
             if record is None:
                 raise RuntimeError("New transfer disappeared")
-            return record
+            return record, False
+
+    def get(self, *, owner_id: int, transfer_id: int) -> TransferRecord:
+        with self.session_factory() as session:
+            record = TransferRepository(session).get(owner_id=owner_id, transfer_id=transfer_id)
+        if record is None:
+            raise RuntimeError("Confirmed transfer disappeared")
+        return record
 
     @staticmethod
     def _validate_references(

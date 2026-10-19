@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -17,18 +18,49 @@ class IncomeService:
         self.session_factory = session_factory
 
     def create(
-        self, *, owner_id: int, request: IncomeWriteRequest, capture_source: str = "manual"
+        self,
+        *,
+        owner_id: int,
+        request: IncomeWriteRequest,
+        capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> IncomeRecord:
+        record, _ = self.create_with_replay(
+            owner_id=owner_id,
+            request=request,
+            capture_source=capture_source,
+            source_proposal_id=source_proposal_id,
+        )
+        return record
+
+    def create_with_replay(
+        self,
+        *,
+        owner_id: int,
+        request: IncomeWriteRequest,
+        capture_source: str,
+        source_proposal_id: UUID | None,
+    ) -> tuple[IncomeRecord, bool]:
+        """Creates a text-capture income and reports whether it was a replay."""
         with self.session_factory() as session, session.begin():
             repository = IncomeRepository(session)
+            if source_proposal_id is not None:
+                existing = repository.find_by_source_proposal_id(
+                    owner_id=owner_id, proposal_id=source_proposal_id
+                )
+                if existing is not None:
+                    return existing, True
             self._validate_references(repository, owner_id=owner_id, request=request)
             income_id = repository.create(
-                owner_id=owner_id, request=request, capture_source=capture_source
+                owner_id=owner_id,
+                request=request,
+                capture_source=capture_source,
+                source_proposal_id=source_proposal_id,
             )
             record = repository.get(owner_id=owner_id, income_id=income_id)
             if record is None:
                 raise RuntimeError("New income disappeared")
-            return record
+            return record, False
 
     def list(self, *, owner_id: int, account_id: int | None = None) -> list[IncomeRecord]:
         with self.session_factory() as session:

@@ -8,6 +8,8 @@ from pydantic.json_schema import WithJsonSchema
 
 from finance_ai.accounts.schemas import format_money
 
+MAX_INCOME_AMOUNT = Decimal("9999999999999999.99")
+
 
 def _parse_income_amount(value: Any) -> Any:
     if not isinstance(value, str):
@@ -18,7 +20,7 @@ def _parse_income_amount(value: Any) -> Any:
 IncomeAmountInput = Annotated[
     Decimal,
     BeforeValidator(_parse_income_amount),
-    Field(gt=0, max_digits=18, decimal_places=2),
+    Field(gt=0, le=MAX_INCOME_AMOUNT, max_digits=18, decimal_places=2),
     WithJsonSchema(
         {
             "type": "string",

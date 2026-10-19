@@ -590,11 +590,14 @@ def install_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception(
+        # Exception strings and tracebacks may contain request data, SQL, credentials, or
+        # provider response details. Keep diagnostics limited to the type and correlation ID.
+        logger.error(
             "Unhandled request failure",
             extra={
                 "correlation_id": correlation_id_from(request),
                 "event": "request.unhandled_failure",
+                "error_type": type(exc).__name__,
                 "outcome": "internal_error",
                 "status": 500,
             },
