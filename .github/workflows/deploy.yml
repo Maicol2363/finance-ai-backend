@@ -1,7 +1,8 @@
 # ──────────────────────────────────────────────
 # Finance AI Backend — CD: Deploy to Google Cloud Run
 # ──────────────────────────────────────────────
-# Runs ONLY after the Backend CI workflow succeeds on main.
+# Deploys only main to the shared finance-api production service.
+# Keep develop blocked until a separate staging service and database exist.
 # ──────────────────────────────────────────────
 name: Deploy to Google Cloud Run
 
@@ -9,10 +10,11 @@ on:
   workflow_run:
     workflows: ["Backend CI"]
     types: [completed]
-    branches: [main, develop]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -20,29 +22,49 @@ env:
   PROJECT_ID: finance-ai-api
   REGION: southamerica-east1
   SERVICE_NAME: finance-api
+  SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   deploy:
     name: Deploy to Cloud Run
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref_name == 'main') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_repository.id == github.repository_id &&
+         github.event.workflow_run.head_branch == 'main')
+      }}
     runs-on: ubuntu-24.04
     concurrency: deploy-group
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          ref: ${{ env.SOURCE_SHA }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker authentication
+      - name: Verify successful Backend CI for manual dispatch SHA
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ env.SOURCE_SHA }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" --quiet
+          runs=$(gh api \
+            "repos/${REPOSITORY}/actions/workflows/ci.yml/runs" \
+            --method GET \
+            -f event=push \
+            -f branch=main \
+            -f head_sha="${SOURCE_SHA}" \
+            -f status=completed \
+            -f per_page=100)
+          if ! printf '%s' "$runs" | jq -e --arg sha "$SOURCE_SHA" \
+            '.workflow_runs | any(.[]; .head_sha == $sha and .event == "push" and .conclusion == "success")' >/dev/null; then
+            echo "No successful Backend CI push run found for the selected SHA. Refusing to deploy."
+            exit 1
+          fi
 
       - name: Set up uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -62,12 +84,32 @@ jobs:
 
       - name: Build runtime container
         run: |
-          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/finance-ai/backend:${{ github.sha }}"
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/finance-ai/backend:${{ env.SOURCE_SHA }}"
           echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
           docker build \
             --target runtime \
             --tag "$IMAGE" \
             .
+
+      - name: Authenticate to Google Cloud
+        if: >-
+          ${{
+            (github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref_name == 'main') ||
+            (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+             github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.head_repository.id == github.repository_id &&
+             github.event.workflow_run.head_branch == 'main')
+          }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker authentication
+        run: |
+          gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" --quiet
 
       - name: Push container to Artifact Registry
         run: |
