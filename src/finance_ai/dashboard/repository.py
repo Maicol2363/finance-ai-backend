@@ -255,6 +255,14 @@ class DashboardRepository:
                 AND ft.status <> 'voided'
                 AND am.amount < 0
                 AND c.code = :currency
+                -- Keep this indexed prefilter conservative around zones with midnight DST shifts;
+                -- the date predicates below preserve the exact local-calendar semantics.
+                AND ft.occurred_at >= (
+                  (CAST(:month_start - 90 AS timestamp) AT TIME ZONE 'UTC') - interval '36 hours'
+                )
+                AND ft.occurred_at < (
+                  (CAST(:today + 1 AS timestamp) AT TIME ZONE 'UTC') + interval '36 hours'
+                )
             )
             SELECT
               COALESCE(
@@ -313,6 +321,14 @@ class DashboardRepository:
                 AND ft.status <> 'voided'
                 AND am.amount < 0
                 AND c.code = :currency
+                AND ft.occurred_at >= (
+                  ((date_trunc('month', CAST(:today AS timestamp)) - interval '3 months')
+                  AT TIME ZONE 'UTC') - interval '36 hours'
+                )
+                AND ft.occurred_at < (
+                  (date_trunc('month', CAST(:today AS timestamp)) AT TIME ZONE 'UTC')
+                  + interval '36 hours'
+                )
             ), monthly AS (
               SELECT date_trunc('month', day) AS m, SUM(amount) AS spent
               FROM spend
@@ -430,6 +446,12 @@ class DashboardRepository:
                 AND ft.status <> 'voided'
                 AND am.amount < 0
                 AND c.code = :currency
+                AND ft.occurred_at >= (
+                  (CAST(:today - 89 AS timestamp) AT TIME ZONE 'UTC') - interval '36 hours'
+                )
+                AND ft.occurred_at < (
+                  (CAST(:today + 1 AS timestamp) AT TIME ZONE 'UTC') + interval '36 hours'
+                )
             ), per_day AS (
               SELECT days.day, COALESCE(SUM(s.amount), 0) AS spent
               FROM days
