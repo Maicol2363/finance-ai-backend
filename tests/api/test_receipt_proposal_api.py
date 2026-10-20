@@ -6,8 +6,10 @@ import io
 import logging
 import sqlite3
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,7 +23,8 @@ from finance_ai.db.receipt_uow import SQLAlchemyReceiptProposalUnitOfWork
 from finance_ai.main import create_app
 from finance_ai.receipts.dependencies import get_current_user_id, get_receipt_proposal_service
 from finance_ai.receipts.models import ReceiptProposalModel
-from finance_ai.receipts.schemas import RawCandidateItem, RawExtractionDTO
+from finance_ai.receipts.repository import ReceiptProposalRepository
+from finance_ai.receipts.schemas import RawCandidateItem, RawExtractionDTO, ReceiptProposalResponse
 from finance_ai.receipts.service import ReceiptProposalService
 from finance_ai.receipts.uow import ReceiptProposalUnitOfWork
 
@@ -177,6 +180,43 @@ def test_proposal_lifecycle_create_get_retry_delete(
         del_resp = client_user_1.delete(f"/api/v1/receipts/proposal/{proposal_id}")
         assert del_resp.status_code == 200
         assert del_resp.json()["status"] == "discarded"
+
+
+def test_real_repository_terminal_state_survives_delayed_retry(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """A retry prepared before confirmation cannot reopen or duplicate a confirmed draft."""
+    proposal = ReceiptProposalResponse(
+        proposal_id=uuid4(),
+        status="complete",
+        merchant_name="Synthetic Store",
+        total_amount=Decimal("1200.00"),
+        currency="COP",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+    service = _build_service(session_factory)
+    service.create_draft(owner_id=505, proposal=proposal)
+    stale_retry = proposal.model_copy(update={"revision": 2, "merchant_name": "Stale Retry"})
+
+    with session_factory() as session:
+        repository = ReceiptProposalRepository(session)
+        assert repository.mark_confirmed(505, proposal.proposal_id, transaction_id=909)
+        session.commit()
+
+    returned = service.replace_draft(
+        owner_id=505, proposal_id=proposal.proposal_id, proposal=stale_retry
+    )
+    assert returned.status == "confirmed"
+    assert returned.merchant_name == "Synthetic Store"
+    assert not hasattr(returned, "transaction_id")
+
+    with session_factory() as session:
+        stored = ReceiptProposalRepository(session).get_by_id_for_user(505, proposal.proposal_id)
+        assert stored is not None
+        assert stored.status == "confirmed"
+        assert stored.revision == 1
+        assert stored.proposal_data["transaction_id"] == 909
 
 
 def test_create_proposal_provider_failure_returns_safe_fallback(

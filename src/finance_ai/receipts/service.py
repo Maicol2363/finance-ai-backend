@@ -53,7 +53,9 @@ class ReceiptProposalService:
                 raise ReceiptProposalNotFoundError
             # Read the stored payload while the session is still open: closing the unit of work
             # expires the ORM instance.
-            stored = row.proposal_data
+            stored = dict(row.proposal_data)
+            stored.pop("transaction_id", None)
+            stored["status"] = row.status
         return ReceiptProposalResponse.model_validate(stored)
 
     def replace_draft(
@@ -69,6 +71,11 @@ class ReceiptProposalService:
             updated = uow.proposals.update(owner_id, proposal_id, flagged)
             if updated is None:
                 raise ReceiptProposalNotFoundError
+            if updated.status in {"confirmed", "discarded"}:
+                stored = dict(updated.proposal_data)
+                stored.pop("transaction_id", None)
+                stored["status"] = updated.status
+                flagged = ReceiptProposalResponse.model_validate(stored)
             uow.commit()
         return flagged
 
