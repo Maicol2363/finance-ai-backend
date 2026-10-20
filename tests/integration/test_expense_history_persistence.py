@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -15,6 +15,7 @@ from sqlalchemy.engine import make_url
 
 from finance_ai.auth.session_schemas import PublicAuthenticatedUser
 from finance_ai.core.config import get_settings
+from finance_ai.dashboard.repository import DashboardRepository
 from finance_ai.db.models.accounts import Account
 from finance_ai.db.models.catalogs import Category, IncomeSource, PaymentMethod
 from finance_ai.db.models.identity import AppUser, Role
@@ -71,7 +72,7 @@ def truncate_users() -> None:
 
 
 @pytest.fixture
-def client(clean_data: None) -> TestClient:
+def client(clean_data: None) -> Iterator[TestClient]:
     app = create_app()
     principal = PublicAuthenticatedUser(
         user_id=1,
@@ -627,3 +628,94 @@ def test_history_supports_store_capture_source_and_receipt_kind_filters(
 
     assert combined.json()["total"] == 1
     assert combined.json()["items"][0]["id"] == photo_multi_tx
+
+
+def test_dashboard_recent_expense_queries_exclude_unneeded_history() -> None:
+    owner_id = create_user(email="dashboard-ranges@example.com")
+    account_id = create_account(user_id=owner_id)
+    category_id = create_category(user_id=owner_id)
+
+    def at_local_date(value: date) -> datetime:
+        # Midday UTC remains on the same calendar date in America/Bogota.
+        return datetime.combine(value, time(12), UTC)
+
+    for value, amount in (
+        (date(2020, 1, 1), "1000.00"),
+        (date(2026, 7, 30), "30.00"),
+        (date(2026, 8, 15), "60.00"),
+        (date(2026, 9, 30), "90.00"),
+        (date(2026, 10, 10), "40.00"),
+    ):
+        create_expense(
+            user_id=owner_id,
+            account_id=account_id,
+            category_id=category_id,
+            amount=amount,
+            occurred_at=at_local_date(value),
+        )
+
+    with get_session_factory()() as session:
+        repository = DashboardRepository(session)
+        spent_mtd, historical_daily = repository.get_projection_data(
+            user_id=owner_id,
+            currency="COP",
+            month_start=date(2026, 10, 1),
+            today=date(2026, 10, 19),
+            tz="America/Bogota",
+        )
+        balance, avg_monthly_spend, _ = repository.get_balance_and_runway(
+            user_id=owner_id,
+            currency="COP",
+            today=date(2026, 10, 19),
+            tz="America/Bogota",
+        )
+        weekend_average, weekday_average = repository.get_weekday_pattern(
+            user_id=owner_id,
+            currency="COP",
+            today=date(2026, 10, 19),
+            tz="America/Bogota",
+        )
+
+    weekend_days = sum(
+        1
+        for day_offset in range(90)
+        if (date(2026, 7, 22) + timedelta(days=day_offset)).isoweekday() >= 6
+    )
+    assert spent_mtd == Decimal("40.00")
+    assert historical_daily == Decimal("2.00000000000000000000")
+    assert balance == Decimal("-1120.00")
+    assert avg_monthly_spend == Decimal("60.0000000000000000")
+    assert abs(weekend_average - Decimal(100) / weekend_days) < Decimal("0.0000000001")
+    weekday_days = 90 - weekend_days
+    assert abs(weekday_average - Decimal("120") / weekday_days) < Decimal("0.0000000001")
+
+
+def test_dashboard_projection_keeps_both_instants_of_repeated_local_midnight() -> None:
+    owner_id = create_user(email="dashboard-dst-ranges@example.com")
+    account_id = create_account(user_id=owner_id)
+    category_id = create_category(user_id=owner_id)
+
+    for occurred_at, amount in (
+        (datetime(2024, 11, 2, 12, tzinfo=UTC), "100.00"),
+        (datetime(2024, 11, 3, 4, 30, tzinfo=UTC), "10.00"),
+        (datetime(2024, 11, 3, 5, 30, tzinfo=UTC), "20.00"),
+    ):
+        create_expense(
+            user_id=owner_id,
+            account_id=account_id,
+            category_id=category_id,
+            amount=amount,
+            occurred_at=occurred_at,
+        )
+
+    with get_session_factory()() as session:
+        spent_mtd, historical_daily = DashboardRepository(session).get_projection_data(
+            user_id=owner_id,
+            currency="COP",
+            month_start=date(2025, 2, 1),
+            today=date(2025, 2, 19),
+            tz="America/Havana",
+        )
+
+    assert spent_mtd == Decimal("0")
+    assert historical_daily == Decimal("0.33333333333333333333")
