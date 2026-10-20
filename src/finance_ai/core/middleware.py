@@ -45,6 +45,15 @@ def _is_capture_path(path: str) -> bool:
     return path.startswith("/api/v1/capture/")
 
 
+def _is_receipt_upload_path(path: str) -> bool:
+    return path in {"/api/v1/receipts/proposal", "/api/v1/receipts/scan"} or (
+        path.startswith("/api/v1/receipts/proposal/") and path.endswith("/retry")
+    )
+
+
+MAX_RECEIPT_REQUEST_BODY_BYTES = 10 * 1024 * 1024 + 64 * 1024
+
+
 class RequestBodyTooLargeError(Exception):
     pass
 
@@ -78,6 +87,14 @@ class RequestGuardMiddleware:
             or (method == "PATCH" and _is_expense_path(path))
             or (method == "POST" and _is_capture_path(path))
         )
+        is_receipt_upload = method == "POST" and _is_receipt_upload_path(path)
+        body_limit = (
+            self.max_body_bytes
+            if guards_json_body
+            else MAX_RECEIPT_REQUEST_BODY_BYTES
+            if is_receipt_upload
+            else None
+        )
         started = time.perf_counter()
 
         if guards_json_body:
@@ -101,10 +118,11 @@ class RequestGuardMiddleware:
                     status_code=415,
                 )
                 return
+        if body_limit is not None:
             content_length = headers.get(b"content-length")
             if content_length is not None:
                 try:
-                    if int(content_length) > self.max_body_bytes:
+                    if int(content_length) > body_limit:
                         await self._payload_too_large(scope, receive, send, correlation_id)
                         self._record_completion(
                             is_registration=is_registration,
@@ -135,13 +153,15 @@ class RequestGuardMiddleware:
                     return
 
         received_bytes = 0
+        body_too_large = False
 
         async def limited_receive() -> Message:
-            nonlocal received_bytes
+            nonlocal received_bytes, body_too_large
             message = await receive()
-            if guards_json_body and message["type"] == "http.request":
+            if body_limit is not None and message["type"] == "http.request":
                 received_bytes += len(message.get("body", b""))
-                if received_bytes > self.max_body_bytes:
+                if received_bytes > body_limit:
+                    body_too_large = True
                     raise RequestBodyTooLargeError
             return message
 
@@ -149,6 +169,10 @@ class RequestGuardMiddleware:
 
         async def send_with_context(message: Message) -> None:
             nonlocal status_code
+            # Multipart parsers may turn a receive-side exception into their own 400.
+            # Suppress that response and emit the canonical 413 after parsing unwinds.
+            if body_too_large:
+                return
             if message["type"] == "http.response.start":
                 status_code = int(message["status"])
                 response_headers = list(message.get("headers", []))
@@ -168,7 +192,12 @@ class RequestGuardMiddleware:
 
         try:
             await self.app(scope, limited_receive, send_with_context)
+            if body_too_large:
+                await self._payload_too_large(scope, receive, send, correlation_id)
+                status_code = 413
         except RequestBodyTooLargeError:
+            if not body_too_large:
+                raise
             await self._payload_too_large(scope, receive, send, correlation_id)
             status_code = 413
         finally:
