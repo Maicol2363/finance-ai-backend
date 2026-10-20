@@ -81,7 +81,8 @@ def sanitize_extraction(
     merchant = dto.merchant_name
     if merchant and contains_suspicious_payload(merchant):
         logger.warning(
-            "Sanitizer stripped suspicious code/command in merchant_name: %s", merchant[:60]
+            "Sanitizer stripped suspicious content from receipt field",
+            extra={"field": "merchant_name"},
         )
         merchant = None
         issues.append(
@@ -97,7 +98,10 @@ def sanitize_extraction(
     for item in dto.items:
         clean_name = item.name
         if contains_suspicious_payload(clean_name):
-            logger.warning("Sanitizer detected suspicious code in item name: %s", clean_name[:60])
+            logger.warning(
+                "Sanitizer stripped suspicious content from receipt field",
+                extra={"field": "item_name"},
+            )
             issues.append(
                 ValidationIssue(
                     code="SUSPICIOUS_PAYLOAD_FILTERED",

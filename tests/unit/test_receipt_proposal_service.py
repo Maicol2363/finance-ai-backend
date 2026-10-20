@@ -64,9 +64,11 @@ class FakeProposalRepository:
     def update(
         self, user_id: int, proposal_id: UUID, proposal: ReceiptProposalResponse
     ) -> ReceiptProposalModel | None:
-        row = self.get_by_id_for_user(user_id, proposal_id)
+        row = self.get_by_id_for_user(user_id, proposal_id, for_update=True)
         if row is None:
             return None
+        if row.status in {"confirmed", "discarded"}:
+            return row
         row.proposal_data = proposal.model_dump(mode="json")
         row.status = proposal.status
         row.revision = proposal.revision
@@ -74,9 +76,11 @@ class FakeProposalRepository:
         return row
 
     def discard(self, user_id: int, proposal_id: UUID) -> bool:
-        row = self.get_by_id_for_user(user_id, proposal_id)
+        row = self.get_by_id_for_user(user_id, proposal_id, for_update=True)
         if row is None:
             return False
+        if row.status in {"confirmed", "discarded"}:
+            return True
         row.status = "discarded"
         self.discarded.append((user_id, proposal_id))
         return True
@@ -217,6 +221,43 @@ def test_replace_draft_raises_for_a_missing_draft() -> None:
 
     with pytest.raises(ReceiptProposalNotFoundError):
         service.replace_draft(owner_id=100, proposal_id=uuid4(), proposal=make_proposal())
+
+
+@pytest.mark.parametrize("terminal_status", ["confirmed", "discarded"])
+def test_replace_draft_does_not_reopen_terminal_proposal(terminal_status: str) -> None:
+    service, repository, units = make_service()
+    proposal = make_proposal()
+    service.create_draft(owner_id=100, proposal=proposal)
+    row = repository.rows[proposal.proposal_id]
+    row.status = terminal_status
+    if terminal_status == "confirmed":
+        row.proposal_data["transaction_id"] = 902
+
+    rotated = proposal.model_copy(update={"revision": 2, "merchant_name": "Tienda Rotada"})
+    returned = service.replace_draft(
+        owner_id=100, proposal_id=proposal.proposal_id, proposal=rotated
+    )
+
+    assert returned.status == terminal_status
+    assert returned.merchant_name == proposal.merchant_name
+    assert row.status == terminal_status
+    assert row.revision == proposal.revision
+    assert repository.updated == []
+    assert units[-1].committed is True
+
+
+def test_get_draft_hides_internal_transaction_id_on_confirmed_proposal() -> None:
+    service, repository, _units = make_service()
+    proposal = make_proposal()
+    service.create_draft(owner_id=100, proposal=proposal)
+    row = repository.rows[proposal.proposal_id]
+    row.status = "confirmed"
+    row.proposal_data["transaction_id"] = 902
+
+    fetched = service.get_draft(owner_id=100, proposal_id=proposal.proposal_id)
+
+    assert fetched.status == "confirmed"
+    assert not hasattr(fetched, "transaction_id")
 
 
 def test_discard_draft_marks_and_commits() -> None:

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from finance_ai.core.middleware import MAX_RECEIPT_REQUEST_BODY_BYTES
 from finance_ai.main import create_app
 from finance_ai.receipts.dependencies import get_current_user_id
 from finance_ai.receipts.schemas import ReceiptExtraction, ReceiptItem
@@ -17,6 +18,48 @@ def test_scan_endpoint_requires_auth() -> None:
     client = TestClient(app)
     resp = client.post("/api/v1/receipts/scan")
     assert resp.status_code == 401
+
+
+def test_oversized_anonymous_receipt_upload_is_rejected_before_multipart_parse() -> None:
+    app = create_app()
+    client = TestClient(app)
+    oversized = b"x" * MAX_RECEIPT_REQUEST_BODY_BYTES
+
+    with patch(
+        "starlette.formparsers.SpooledTemporaryFile",
+        side_effect=AssertionError("multipart parser must not receive an oversized body"),
+    ):
+        response = client.post(
+            "/api/v1/receipts/proposal",
+            files={"file": ("receipt.jpg", oversized, "image/jpeg")},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["code"] == "request_too_large"
+
+
+def test_chunked_oversized_multipart_upload_returns_413_from_real_app() -> None:
+    app = create_app()
+    client = TestClient(app, raise_server_exceptions=False)
+    boundary = "security-boundary"
+    body = (
+        (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+            'filename="receipt.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'
+        ).encode()
+        + b"x" * 256
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    chunks = (body[index : index + 32] for index in range(0, len(body), 32))
+    with patch("finance_ai.core.middleware.MAX_RECEIPT_REQUEST_BODY_BYTES", 192):
+        response = client.post(
+            "/api/v1/receipts/proposal",
+            content=chunks,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["code"] == "request_too_large"
 
 
 def test_scan_endpoint_mocked_deepseek() -> None:
