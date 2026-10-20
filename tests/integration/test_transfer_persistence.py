@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from threading import Barrier, local
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command as alembic_command
@@ -27,7 +30,8 @@ from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.transactions import AccountMovement, FinancialTransaction
 from finance_ai.db.seeds import seed_shared_data
 from finance_ai.db.session import clear_session_caches, get_session_factory
-from finance_ai.transfers.schemas import TransferCreateRequest
+from finance_ai.transfers.repository import TransferRepository
+from finance_ai.transfers.schemas import TransferCreateRequest, TransferRecord
 from finance_ai.transfers.service import TransferService
 
 pytestmark = pytest.mark.integration
@@ -137,7 +141,7 @@ def signed_total(owner_id: int, transaction_type: str) -> Decimal:
                 FinancialTransaction.transaction_type == transaction_type,
             )
         )
-        return Decimal(total)
+        return Decimal(total or 0)
 
 
 def test_same_currency_transfer_moves_amount_and_skips_income_expense() -> None:
@@ -201,3 +205,71 @@ def test_transfer_rules_save_nothing_on_failure() -> None:
     assert transaction_count() == 0
     assert balance(owner, source) == Decimal("1000.00")
     assert balance(owner, destination) == Decimal("1000.00")
+
+
+def test_opposite_transfers_lock_accounts_in_consistent_order() -> None:
+    owner = create_owner("concurrent-transfer-owner@example.com")
+    first = create_account(owner, "First")
+    second = create_account(owner, "Second")
+    start = Barrier(2)
+
+    def create(source_id: int, destination_id: int) -> None:
+        start.wait(timeout=5)
+        transfer_service().create(
+            owner_id=owner,
+            request=transfer_request(source_id, destination_id, "1.00"),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(create, first, second),
+            executor.submit(create, second, first),
+        ]
+        for future in futures:
+            future.result(timeout=15)
+
+    assert transaction_count() == 2
+    assert balance(owner, first) == Decimal("1000.00")
+    assert balance(owner, second) == Decimal("1000.00")
+
+
+def test_concurrent_transfer_confirmation_replays_unique_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = create_owner("concurrent-replay-owner@example.com")
+    source = create_account(owner, "Cash")
+    destination = create_account(owner, "Savings")
+    proposal_id = uuid4()
+    initial_lookups = Barrier(2)
+    thread_state = local()
+    original_lookup = TransferRepository.find_by_source_proposal_id
+
+    def synchronized_lookup(
+        repository: TransferRepository, *, owner_id: int, proposal_id: UUID
+    ) -> TransferRecord | None:
+        record = original_lookup(repository, owner_id=owner_id, proposal_id=proposal_id)
+        if not getattr(thread_state, "initial_lookup_done", False):
+            thread_state.initial_lookup_done = True
+            if record is None:
+                initial_lookups.wait(timeout=10)
+        return record
+
+    monkeypatch.setattr(TransferRepository, "find_by_source_proposal_id", synchronized_lookup)
+
+    def confirm() -> tuple[TransferRecord, bool]:
+        return transfer_service().create_with_replay(
+            owner_id=owner,
+            request=transfer_request(source, destination),
+            capture_source="text_ai",
+            source_proposal_id=proposal_id,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(confirm) for _ in range(2)]
+        results = [future.result(timeout=15) for future in futures]
+
+    assert results[0][0].id == results[1][0].id
+    assert sorted(is_replay for _, is_replay in results) == [False, True]
+    assert transaction_count() == 1
+    assert balance(owner, source) == Decimal("900.00")
+    assert balance(owner, destination) == Decimal("1100.00")
