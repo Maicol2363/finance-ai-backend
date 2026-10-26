@@ -14,7 +14,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Finance AI API",
         version="0.1.0",
-        description="Manual-first personal budgeting API",
+        description="AI-assisted personal finance and budgeting API",
     )
     install_exception_handlers(app)
     app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_request_body_bytes)
