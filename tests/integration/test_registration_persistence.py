@@ -7,7 +7,7 @@ from typing import Literal, Self
 import pytest
 from alembic import command as alembic_command
 from alembic.config import Config
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -27,7 +27,7 @@ from finance_ai.core.errors import (
     SessionInvalidError,
 )
 from finance_ai.db.models.catalogs import Category, IncomeSource
-from finance_ai.db.models.identity import AppUser
+from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
 from finance_ai.db.seeds import (
@@ -130,6 +130,32 @@ def test_registration_persists_one_owner_and_exact_catalogs() -> None:
         REGISTRATION_CATALOG_TEMPLATE.income_sources
     )
     assert {item.user_id for item in [*categories, *income_sources]} == {user_id}
+
+
+def test_registration_assigns_user_role_by_name_not_role_primary_key() -> None:
+    with get_session_factory()() as session:
+        # Simulate a valid database where IDs were assigned in a different order.
+        session.execute(update(Role).where(Role.name == "user").values(id=3))
+        session.execute(update(Role).where(Role.name == "admin").values(id=1))
+        session.execute(update(Role).where(Role.name == "user").values(id=2))
+        session.commit()
+
+    try:
+        user_id = register(registration_service())
+        with get_session_factory()() as session:
+            user = session.get(AppUser, user_id)
+            assert user is not None
+            assert user.role.name == "user"
+            assert user.role_id == 2
+    finally:
+        with get_session_factory()() as session:
+            session.execute(
+                text("TRUNCATE TABLE income_source, category, app_user RESTART IDENTITY CASCADE")
+            )
+            session.execute(update(Role).where(Role.name == "admin").values(id=3))
+            session.execute(update(Role).where(Role.name == "user").values(id=1))
+            session.execute(update(Role).where(Role.name == "admin").values(id=2))
+            session.commit()
 
 
 def test_catalog_failure_rolls_back_user_and_all_staged_rows() -> None:

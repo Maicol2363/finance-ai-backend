@@ -76,10 +76,15 @@ def test_public_response_can_never_echo_the_supplied_password(password: str) -> 
             normalized_email="person@example.com",
             preferred_currency="COP",
         )
-    ).model_dump_json()
+    ).model_dump()
 
-    assert password not in response
-    assert "password" not in response.casefold()
+    assert response == {
+        "user": {"id": 1, "email": "person@example.com", "preferred_currency": "COP"},
+        "message": "Account created successfully. You can now log in.",
+    }
+    assert "password" not in response["user"]
+    assert password not in response["user"].values()
+    assert "password" not in response["message"].casefold()
 
 
 def test_starter_catalog_template_has_exact_stable_invariants() -> None:

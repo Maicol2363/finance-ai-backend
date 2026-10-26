@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from finance_ai.accounts.schemas import AccountCreateCommand, AccountType
 from finance_ai.accounts.service import AccountService
 from finance_ai.capture.dependencies import load_capture_context
 from finance_ai.capture.models import TextCaptureProposalModel
+from finance_ai.capture.repository import TextProposalRepository
 from finance_ai.capture.schemas import (
     CaptureIntent,
     ProposalStatus,
@@ -191,6 +193,184 @@ def test_text_proposals_save_nothing_and_confirming_records_one_text_ai_expense(
     assert capture_sources(owner) == {"expense": "text_ai"}
     assert balance(owner, cash) == Decimal("84100.00")
     assert repeat.replayed is True and repeat.record_id == confirmation.record_id
+
+
+def test_confirmation_retry_after_financial_commit_does_not_duplicate_expense(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = create_owner("capture-retry@example.test")
+    cash = create_account(owner, "Efectivo")
+    service = build(raw(intent="expense", amount=15900, description="Almuerzo", account="Efectivo"))
+    proposal = propose(service, owner, "Almorcé por 15900")
+    command = TextProposalConfirmRequest(
+        intent=CaptureIntent.EXPENSE,
+        amount="15900.00",  # type: ignore[arg-type]
+        date=proposal.date,  # type: ignore[arg-type]
+        description="Almuerzo",
+        account_id=cash,
+    )
+    original_update = TextProposalRepository.update
+    fail_once = True
+
+    def fail_after_operation_commit(*args: object, **kwargs: object) -> None:
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            raise RuntimeError("injected proposal write failure")
+        original_update(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(TextProposalRepository, "update", fail_after_operation_commit)
+    with pytest.raises(RuntimeError, match="injected proposal write failure"):
+        service.confirm(owner_id=owner, proposal_id=proposal.proposal_id, command=command)
+
+    with get_session_factory()() as session:
+        persisted = session.scalars(
+            select(FinancialTransaction).where(
+                FinancialTransaction.user_id == owner,
+                FinancialTransaction.source_proposal_id == proposal.proposal_id,
+            )
+        ).all()
+    assert len(persisted) == 1
+
+    retried = service.confirm(
+        owner_id=owner,
+        proposal_id=proposal.proposal_id,
+        command=command.model_copy(
+            update={"amount": Decimal("25900.00"), "date": proposal.date - timedelta(days=1)}
+        ),
+    )
+
+    with get_session_factory()() as session:
+        persisted = session.scalars(
+            select(FinancialTransaction).where(
+                FinancialTransaction.user_id == owner,
+                FinancialTransaction.source_proposal_id == proposal.proposal_id,
+            )
+        ).all()
+    assert len(persisted) == 1
+    assert retried.replayed is True
+    assert retried.record_id == persisted[0].id
+    assert retried.amount == "15900.00"
+    assert retried.date == proposal.date
+    assert balance(owner, cash) == Decimal("84100.00")
+
+
+@pytest.mark.parametrize("intent", [CaptureIntent.INCOME, CaptureIntent.TRANSFER])
+def test_confirmation_retry_after_commit_returns_persisted_income_or_transfer(
+    monkeypatch: pytest.MonkeyPatch, intent: CaptureIntent
+) -> None:
+    owner = create_owner(f"capture-{intent.value}-retry@example.test")
+    cash = create_account(owner, "Efectivo", "0.00")
+    nequi = create_account(owner, "Nequi", "50000.00")
+    if intent is CaptureIntent.INCOME:
+        service = build(raw(intent="income", amount=20000, account="Efectivo", description="Venta"))
+        proposal = propose(service, owner, "recibí 20 mil por venta")
+        command = TextProposalConfirmRequest(
+            intent=intent,
+            amount="20000.00",  # type: ignore[arg-type]
+            date=proposal.date,  # type: ignore[arg-type]
+            description="Venta",
+            account_id=cash,
+        )
+    else:
+        service = build(
+            raw(
+                intent="expense",
+                amount=12000,
+                account="Nequi",
+                destination_account="Efectivo",
+            )
+        )
+        proposal = propose(service, owner, "pasé 12 mil de Nequi a efectivo")
+        command = TextProposalConfirmRequest(
+            intent=intent,
+            amount="12000.00",  # type: ignore[arg-type]
+            date=proposal.date,  # type: ignore[arg-type]
+            description="Ahorro",
+            account_id=nequi,
+            destination_account_id=cash,
+        )
+
+    original_update = TextProposalRepository.update
+    fail_once = True
+
+    def fail_after_operation_commit(*args: object, **kwargs: object) -> None:
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            raise RuntimeError("injected proposal write failure")
+        original_update(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(TextProposalRepository, "update", fail_after_operation_commit)
+    with pytest.raises(RuntimeError, match="injected proposal write failure"):
+        service.confirm(owner_id=owner, proposal_id=proposal.proposal_id, command=command)
+
+    retried = service.confirm(
+        owner_id=owner,
+        proposal_id=proposal.proposal_id,
+        command=command.model_copy(
+            update={"amount": Decimal("22000.00"), "date": proposal.date - timedelta(days=1)}
+        ),
+    )
+
+    with get_session_factory()() as session:
+        persisted = session.scalars(
+            select(FinancialTransaction).where(
+                FinancialTransaction.user_id == owner,
+                FinancialTransaction.source_proposal_id == proposal.proposal_id,
+            )
+        ).all()
+    assert len(persisted) == 1
+    assert retried.replayed is True
+    assert retried.amount == "12000.00" if intent is CaptureIntent.TRANSFER else "20000.00"
+    assert retried.date == proposal.date
+    assert balance(owner, cash) == (
+        Decimal("20000.00") if intent is CaptureIntent.INCOME else Decimal("12000.00")
+    )
+    assert balance(owner, nequi) == (
+        Decimal("50000.00") if intent is CaptureIntent.INCOME else Decimal("38000.00")
+    )
+
+
+def test_retry_with_changed_intent_returns_first_committed_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = create_owner("capture-intent-change@example.test")
+    cash = create_account(owner, "Efectivo")
+    service = build(raw(intent="expense", amount=15900, description="Almuerzo", account="Efectivo"))
+    proposal = propose(service, owner, "Almorcé por 15900")
+    command = TextProposalConfirmRequest(
+        intent=CaptureIntent.EXPENSE,
+        amount="15900.00",  # type: ignore[arg-type]
+        date=proposal.date,  # type: ignore[arg-type]
+        description="Almuerzo",
+        account_id=cash,
+    )
+    original_update = TextProposalRepository.update
+    fail_once = True
+
+    def fail_after_operation_commit(*args: object, **kwargs: object) -> None:
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            raise RuntimeError("injected proposal write failure")
+        original_update(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(TextProposalRepository, "update", fail_after_operation_commit)
+    with pytest.raises(RuntimeError, match="injected proposal write failure"):
+        service.confirm(owner_id=owner, proposal_id=proposal.proposal_id, command=command)
+
+    retried = service.confirm(
+        owner_id=owner,
+        proposal_id=proposal.proposal_id,
+        command=command.model_copy(update={"intent": CaptureIntent.INCOME}),
+    )
+
+    assert retried.replayed is True
+    assert retried.intent is CaptureIntent.EXPENSE
+    assert retried.amount == "15900.00"
+    assert capture_sources(owner) == {"expense": "text_ai"}
+    assert balance(owner, cash) == Decimal("84100.00")
 
 
 def test_confirming_an_income_and_a_transfer_uses_the_same_atomic_operations() -> None:

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, time
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,6 +42,7 @@ class TransferRepository:
         request: TransferCreateRequest,
         destination_amount: Decimal,
         capture_source: str = "manual",
+        source_proposal_id: UUID | None = None,
     ) -> int:
         transaction = FinancialTransaction(
             user_id=owner_id,
@@ -49,6 +51,7 @@ class TransferRepository:
             occurred_at=datetime.combine(request.date, time.min, UTC),
             description=request.description,
             capture_source=capture_source,
+            source_proposal_id=source_proposal_id,
         )
         self.session.add(transaction)
         self.session.flush()
@@ -104,6 +107,20 @@ class TransferRepository:
             created_at=transaction.created_at,
             updated_at=transaction.updated_at,
         )
+
+    def find_by_source_proposal_id(
+        self, *, owner_id: int, proposal_id: UUID
+    ) -> TransferRecord | None:
+        transfer_id = self.session.scalar(
+            select(FinancialTransaction.id).where(
+                FinancialTransaction.user_id == owner_id,
+                FinancialTransaction.source_proposal_id == proposal_id,
+                FinancialTransaction.transaction_type == "transfer",
+            )
+        )
+        if transfer_id is None:
+            return None
+        return self.get(owner_id=owner_id, transfer_id=transfer_id)
 
     def _account_summary(self, account_id: int) -> TransferAccountSummary:
         row = self.session.execute(

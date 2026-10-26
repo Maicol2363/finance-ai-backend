@@ -11,6 +11,24 @@ from sqlalchemy.orm import Session
 
 from finance_ai.capture.models import TextCaptureProposalModel
 from finance_ai.capture.schemas import TextProposalResponse
+from finance_ai.db.models.transactions import FinancialTransaction
+
+
+class CaptureOperationRepository:
+    """Looks up a confirmed operation by its capture idempotency key."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def find_confirmed(self, owner_id: int, proposal_id: UUID) -> tuple[int, str] | None:
+        row = self.session.execute(
+            select(FinancialTransaction.id, FinancialTransaction.transaction_type).where(
+                FinancialTransaction.user_id == owner_id,
+                FinancialTransaction.source_proposal_id == proposal_id,
+                FinancialTransaction.status == "confirmed",
+            )
+        ).one_or_none()
+        return None if row is None else (int(row[0]), str(row[1]))
 
 
 class TextProposalRepository:

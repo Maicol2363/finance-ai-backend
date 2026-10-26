@@ -68,10 +68,12 @@ class ReceiptProposalRepository:
     def update(
         self, user_id: int, proposal_id: UUID, proposal: ReceiptProposalResponse
     ) -> ReceiptProposalModel | None:
-        """Updates an existing proposal with new revision and data."""
-        row = self.get_by_id_for_user(user_id, proposal_id)
+        """Updates an editable proposal without reopening terminal states."""
+        row = self.get_by_id_for_user(user_id, proposal_id, for_update=True)
         if row is None:
             return None
+        if row.status in {"confirmed", "discarded"}:
+            return row
         row.status = proposal.status
         row.revision = proposal.revision
         row.proposal_data = proposal.model_dump(mode="json")
@@ -83,9 +85,11 @@ class ReceiptProposalRepository:
         self, user_id: int, proposal_id: UUID, *, transaction_id: int | None = None
     ) -> bool:
         """Marks a proposal as confirmed and records the associated transaction_id."""
-        row = self.get_by_id_for_user(user_id, proposal_id)
+        row = self.get_by_id_for_user(user_id, proposal_id, for_update=True)
         if row is None:
             return False
+        if row.status in {"confirmed", "discarded"}:
+            return True
         row.status = "confirmed"
         if transaction_id is not None:
             data = dict(row.proposal_data)
@@ -96,9 +100,11 @@ class ReceiptProposalRepository:
 
     def discard(self, user_id: int, proposal_id: UUID) -> bool:
         """Marks a proposal as discarded."""
-        row = self.get_by_id_for_user(user_id, proposal_id)
+        row = self.get_by_id_for_user(user_id, proposal_id, for_update=True)
         if row is None:
             return False
+        if row.status in {"confirmed", "discarded"}:
+            return True
         row.status = "discarded"
         self.session.flush()
         return True

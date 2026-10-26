@@ -4141,7 +4141,7 @@
     }
   },
   "info": {
-    "description": "Manual-first personal budgeting API",
+    "description": "AI-assisted personal finance and budgeting API",
     "title": "Finance AI API",
     "version": "0.1.0"
   },

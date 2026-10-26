@@ -101,7 +101,7 @@ def test_income_create_list_detail_edit_delete_contract(
     assert all(owner_id == 42 for _, owner_id, _ in service.calls)
 
 
-@pytest.mark.parametrize("amount", ["0.00", "-1.00", "1.001", 12])
+@pytest.mark.parametrize("amount", ["0.00", "-1.00", "1.001", "10000000000000000.00", 12])
 def test_income_rejects_invalid_amount_before_service(
     client_and_service: tuple[TestClient, StubIncomeService], amount: object
 ) -> None:
