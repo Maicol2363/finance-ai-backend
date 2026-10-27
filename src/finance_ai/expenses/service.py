@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from finance_ai.categories.schemas import CategoryColor, CategoryIcon
@@ -42,6 +42,11 @@ CAPTURE_SOURCE_GROUPS: dict[str, tuple[str, ...]] = {
     "manual": ("manual",),
     "import": ("import",),
 }
+
+
+def manual_unit_price_from_total(*, total: Decimal, quantity: Decimal) -> Decimal:
+    """Derive the cent-precision unit price for one manually entered line."""
+    return (total / quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class ExpenseService:
@@ -350,12 +355,26 @@ class ExpenseService:
                 if items_provided
                 else command.fields
             )
+            unit_price = None
+            if (
+                not items_provided
+                and "amount" in command.fields
+                and command.amount is not None
+                and current.capture_source == "manual"
+                and len(current.items) == 1
+                and current.items[0].quantity > Decimal("0")
+            ):
+                unit_price = manual_unit_price_from_total(
+                    total=command.amount,
+                    quantity=current.items[0].quantity,
+                )
             uow.expenses.update(
                 owner_id=owner_id,
                 expense_id=expense_id,
                 fields=applied_fields,
                 name=command.name,
                 amount=None if items_provided else command.amount,
+                unit_price=unit_price,
                 note=command.note,
                 receipt_name=command.receipt_name,
                 receipt_note=command.receipt_note,
