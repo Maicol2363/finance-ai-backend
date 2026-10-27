@@ -177,6 +177,7 @@ class ExpenseRepository(Protocol):
         fields: frozenset[str],
         name: str | None,
         amount: Decimal | None,
+        unit_price: Decimal | None,
         note: str | None,
         receipt_name: str | None,
         receipt_note: str | None,
