@@ -49,3 +49,24 @@
 - **Persistence checks**: `alembic upgrade head`, `alembic check`, and seed command passed on a disposable PostgreSQL `_test` database
 - **Review**: Sol found no remaining concrete defects
 - **Warnings**: pytest emitted SQLite `ResourceWarning` messages for unclosed connections in an existing decode-failure test
+
+## Maintenance Task — Dependency Audit Remediation (2026-11-03)
+- **Current Stage**: CONSTRUCTION - Local verification complete; PR CI rerun triggered
+- **Branch**: develop at 37de6dc, matching origin/develop and PR #33
+- **Objective**: update dnspython and msgpack to versions accepted by the configured dependency audit
+- **Workspace**: existing backend checkout; unrelated untracked files preserved
+- **Extension Configuration**: Security Baseline enabled; Property-Based Testing partial and N/A; Resiliency Baseline disabled
+- **Stage Progress**:
+  - [x] Workspace detection
+  - [x] Reverse engineering reused
+  - [x] Requirements analysis
+  - [x] User stories skipped
+  - [x] Workflow planning approved
+  - [x] Application design skipped
+  - [x] Units generation skipped
+  - [x] Functional design skipped
+  - [x] NFR requirements and design skipped
+  - [x] Code generation
+  - [x] Build and test (lock validation and dependency audit passed; PR CI will run after push)
+  - [x] Operations skipped
+- **Current Status**: commit a9fc89e pushed to develop; lock validation, uv sync, and pip-audit passed; PR #33 checks are running

@@ -24,3 +24,12 @@ Transfer locking and idempotent replay changes only. Full backend verification c
 - `uv run pytest --cov=finance_ai --cov-report=term-missing`
 
 All PostgreSQL checks ran against a new loopback-only disposable container without a volume; the container was removed after testing. No existing database or Docker volume was reused.
+
+## Dependency Audit Remediation — 2026-11-03
+
+- **Lock validation**: uv 0.12.5 resolved the lock successfully.
+- **Dependency sync**: uv sync --all-groups --frozen passed.
+- **Dependency audit**: pip-audit found no known vulnerabilities after updating dnspython to 2.9.1 and msgpack to 1.2.4.
+- **Local package notice**: finance-ai-backend was skipped because it is not published on PyPI; this is informational.
+- **Application tests**: no application code changed; the full project checks will run in GitHub Actions after the authorized push.
+- **PR CI**: commit a9fc89e was pushed to develop; GitHub Actions is rerunning the full PR checks.

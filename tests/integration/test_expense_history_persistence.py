@@ -309,6 +309,7 @@ def test_expense_read_update_recalculates_total_and_movement(client: TestClient)
     assert detail.json()["image_path"] == "expense.jpg"
     assert updated.status_code == 200
     assert updated.json()["amount"] == "30.00"
+    assert updated.json()["unit_price"] == "30.00"
     assert updated.json()["name"] == "Updated groceries"
     assert updated.json()["note"] is None
     assert updated.json()["receipt_name"] == "Updated market"
@@ -328,6 +329,40 @@ def test_expense_read_update_recalculates_total_and_movement(client: TestClient)
         assert receipt.category_id == category_id
         assert movement is not None and movement.amount == Decimal("-30.00")
         assert item is not None and item.note is None
+        assert item.amount == Decimal("30.00")
+        assert item.unit_price == Decimal("30.00")
+        assert item.quantity == Decimal("1")
+
+
+def test_manual_amount_patch_preserves_quantity_and_rounds_unit_price(client: TestClient) -> None:
+    owner_id = create_user(email="owner@example.com")
+    account_id = create_account(user_id=owner_id)
+    expense_id, receipt_id, _ = create_expense(
+        user_id=owner_id,
+        account_id=account_id,
+        category_id=None,
+        amount="25.00",
+    )
+    with get_session_factory()() as session:
+        item = session.get(Expense, expense_id)
+        assert item is not None
+        item.quantity = Decimal("2.500")
+        item.unit_price = Decimal("10.00")
+        session.commit()
+
+    updated = client.patch(f"/api/v1/expenses/{expense_id}", json={"amount": "30.01"})
+
+    assert updated.status_code == 200
+    assert updated.json()["amount"] == "30.01"
+    assert updated.json()["unit_price"] == "12.00"
+    with get_session_factory()() as session:
+        receipt = session.get(Receipt, receipt_id)
+        item = session.get(Expense, expense_id)
+        assert receipt is not None and receipt.total == Decimal("30.01")
+        assert item is not None
+        assert item.amount == Decimal("30.01")
+        assert item.quantity == Decimal("2.500")
+        assert item.unit_price == Decimal("12.00")
 
 
 def _create_receipt_expense_with_second_line(

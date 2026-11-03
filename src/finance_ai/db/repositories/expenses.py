@@ -348,6 +348,7 @@ class SQLAlchemyExpenseRepository:
         fields: frozenset[str],
         name: str | None,
         amount: Decimal | None,
+        unit_price: Decimal | None,
         note: str | None,
         receipt_name: str | None,
         receipt_note: str | None,
@@ -378,6 +379,8 @@ class SQLAlchemyExpenseRepository:
             expense_values["name"] = name
         if "amount" in fields:
             expense_values["amount"] = amount
+        if unit_price is not None:
+            expense_values["unit_price"] = unit_price
         if "note" in fields:
             expense_values["note"] = note
             expense_values["item_reason"] = note
