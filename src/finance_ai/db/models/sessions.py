@@ -46,6 +46,7 @@ class UserSession(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     last_renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    mfa_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revocation_reason: Mapped[str | None] = mapped_column(String(32))
 

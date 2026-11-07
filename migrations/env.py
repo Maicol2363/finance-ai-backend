@@ -8,6 +8,7 @@ from finance_ai.db.base import Base
 from finance_ai.db.models import (
     Account,
     AccountMovement,
+    AdminTotpFactor,
     AppUser,
     Category,
     Currency,
@@ -15,6 +16,11 @@ from finance_ai.db.models import (
     IncomeSource,
     ReceiptProposalModel,
     RenewableCredential,
+    SecurityAuditEvent,
+    StaffInvitation,
+    SupportTicket,
+    SupportTicketActivity,
+    SupportTicketMessage,
     TextCaptureProposalModel,
     UserSession,
 )
@@ -23,6 +29,7 @@ _MODELS = (
     Account,
     AccountMovement,
     AppUser,
+    AdminTotpFactor,
     Category,
     Currency,
     FinancialTransaction,
@@ -30,6 +37,11 @@ _MODELS = (
     ReceiptProposalModel,
     TextCaptureProposalModel,
     RenewableCredential,
+    SecurityAuditEvent,
+    StaffInvitation,
+    SupportTicket,
+    SupportTicketActivity,
+    SupportTicketMessage,
     UserSession,
 )
 config = context.config

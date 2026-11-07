@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from finance_ai.api.router import api_router
@@ -17,6 +18,14 @@ def create_app() -> FastAPI:
         description="AI-assisted personal finance and budgeting API",
     )
     install_exception_handlers(app)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
+        expose_headers=["X-Correlation-ID"],
+    )
     app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_request_body_bytes)
     app.include_router(api_router)
 
