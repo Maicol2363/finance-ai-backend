@@ -15,7 +15,7 @@
 4. [x] Add trusted-origin regression coverage for guard-generated `415` and `413` responses, including exposed correlation IDs.
 5. [x] Run focused tests, formatting/lint checks, type checks, the full available suite, and `git diff --check`.
 6. [x] Review the final diff and confirm only the intended application, test, and AI-DLC task files are changed.
-7. [ ] Publish the fix to the existing PR branch.
+7. [x] Publish the fix to the existing PR branch.
 
 ## Verification Results
 
@@ -24,3 +24,4 @@
 - mypy: passed for 143 source files.
 - Ruff format/check and `git diff --check`: passed.
 - Aggregate local coverage: 79%; PostgreSQL tests were unavailable, so the repository's 80% aggregate target remains unverified in this checkout.
+- PR #34 head: `919e43bd755687e5c60aebef3f44da1efaef16cc`; the GitHub `quality` check was pending at the last status read.
