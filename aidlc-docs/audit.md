@@ -520,3 +520,19 @@ Continúa autónomamente hasta completar las optimizaciones verificables.
 **Context**: User-authorized push completed; local dependency audit passed; full remote CI result pending.
 
 ---
+
+## Construction — CORS for Request Guard Failures
+**Timestamp**: 2026-11-08T00:01:30Z
+**User Input**: "OK ARREGLA ESO"
+**AI Response**: Confirmed PR #34 is open on `develop` and its remote head matches the clean isolated worktree. Reversed Starlette user-middleware registration so CORS wraps `RequestGuardMiddleware`; added regression coverage for trusted-origin early 413 and 415 responses, including readable correlation IDs. Security Baseline is enabled and applicable: the existing explicit-origin, credential-free policy is preserved. Property-Based Testing is partial and N/A because this is middleware ordering with no pure function or serialization change. Resiliency Baseline is disabled.
+**Context**: One-unit bug fix for the P2 review comment on PR #34. No API, persistence, migration, or frontend scope.
+
+---
+
+## Construction — CORS Fix Verification
+**Timestamp**: 2026-11-08T00:02:55Z
+**User Input**: "OK ARREGLA ESO"
+**AI Response**: The focused CORS config tests passed (4 tests); Ruff format/check, mypy (143 source files), and `git diff --check` passed. The available full suite passed 383 tests and skipped 65 PostgreSQL integration tests because `FINANCE_AI_TEST_DATABASE_URL` is not configured. Aggregate local coverage was 79%, so the repository's 80% aggregate target is unverified in this checkout. No database-backed verification was attempted without a dedicated test database.
+**Context**: Final local verification for `cors-request-guard-failures`; preparing the reviewed change for the existing PR branch.
+
+---

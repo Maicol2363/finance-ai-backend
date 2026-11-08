@@ -18,6 +18,9 @@ def create_app() -> FastAPI:
         description="AI-assisted personal finance and budgeting API",
     )
     install_exception_handlers(app)
+    app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_request_body_bytes)
+    # Starlette places the most recently added user middleware on the outside.
+    # Keep CORS outside the request guard so its early error responses get CORS headers.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allowed_origins,
@@ -26,7 +29,6 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
         expose_headers=["X-Correlation-ID"],
     )
-    app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_request_body_bytes)
     app.include_router(api_router)
 
     @app.get("/", include_in_schema=False)

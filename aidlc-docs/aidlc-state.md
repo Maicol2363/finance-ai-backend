@@ -70,3 +70,19 @@
   - [x] Build and test (lock validation and dependency audit passed; PR CI will run after push)
   - [x] Operations skipped
 - **Current Status**: commit a9fc89e pushed to develop; lock validation, uv sync, and pip-audit passed; PR #33 checks are running
+
+## Maintenance Task — CORS for Request Guard Failures (2026-11-08)
+- **Current Stage**: CONSTRUCTION — local verification complete; publish pending
+- **Branch**: `codex/support-admin-security-foundation-20261107`, matching the open PR #34 head from `origin`
+- **Objective**: ensure configured browser origins receive CORS headers and the exposed correlation ID on request-guard 413/415 responses
+- **Active Unit**: `cors-request-guard-failures`
+- **Plan**: `aidlc-docs/construction/plans/cors-request-guard-code-generation-plan.md`
+- **Scope**: `src/finance_ai/main.py` and `tests/unit/test_staff_foundation_config.py`; no API contract or schema changes
+- **Extension Configuration**: Security Baseline enabled and applicable; Property-Based Testing partial and N/A; Resiliency Baseline disabled
+- **Stage Progress**:
+  - [x] Workspace detection and current PR revision confirmed
+  - [x] Minimal requirements and workflow plan
+  - [x] Application design and units generation skipped (one localized middleware-order fix)
+  - [x] Code generation and regression coverage
+  - [x] Focused verification and final review
+  - [ ] Publish to the existing PR branch
