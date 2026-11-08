@@ -28,3 +28,14 @@ This repository owns the FastAPI service, PostgreSQL persistence, migrations, se
 ## Required verification
 
 Run formatting, linting, type checking, migration/seed drift checks, OpenAPI drift checks, tests with at least 80% line coverage, real PostgreSQL integration tests when persistence changes, and the dependency audit. Never use a non-test database for automated tests.
+
+## Staff foundation boundaries
+
+- Migration 0018_staff_foundation adds only the approved four authorization roles and persistence foundations. Keep role assignment, Administrator provisioning, MFA workflows, ticket transitions, field visibility, audit writers, and Auditor queries in authorized backend services, not frontend assumptions.
+- Preserve ticket activity and security audit evidence. Ticket messages are customer-visible; escalation and return reasons are restricted staff metadata; resolution summaries are customer-visible. Do not add a general-purpose private-note or message feature.
+- Security audit context must use an explicit allowlist. Never record credentials, MFA or invitation secrets, financial amounts, receipts, or sensitive ticket content.
+- Keep the append-only security event table and its migration protection. Ordinary application flows must not update or delete audit records.
+- The staff portal is the separate React app in Maicol2363/finance-ai-frontend/staff-web/. Configure exact trusted origins with FINANCE_AI_CORS_ALLOWED_ORIGINS; do not use wildcard origins or credentialed CORS. Existing opaque bearer sessions remain authoritative until a browser-session contract is approved.
+- Use aidlc-docs/inception/requirements/foundation-schema-mapping.md for the current persistence mapping and outstanding design boundaries. Final Security Auditor scope remains controlled by the authoritative role stories.
+
+For local setup, copy .env.example to .env (Linux: cp .env.example .env; PowerShell: Copy-Item .env.example .env), then use uv sync --all-groups --frozen. docker compose up --build -d starts PostgreSQL and the API; local database access for host-run tools is loopback-only through docker compose -f compose.yaml -f compose.dbeaver.yaml up -d database. The normal API container applies migrations and seeds on startup. Use a database ending in _test for tests.
