@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main, develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -35,6 +36,8 @@ jobs:
       FINANCE_AI_TEST_DATABASE_URL: postgresql+psycopg://finance_ai:change-me-ci@127.0.0.1:5432/finance_ai_test
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.5"
@@ -57,8 +60,14 @@ jobs:
           uv run python scripts/export_openapi.py
           git diff --exit-code -- openapi.json
       - name: Run tests with coverage
-        run: uv run pytest --cov=finance_ai --cov-report=term-missing
+        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml:coverage.xml
       - name: Build source and wheel distributions
         run: uv build
       - name: Audit locked dependencies
         run: uv run pip-audit
+      - name: Publish coverage to SonarQube Cloud
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
