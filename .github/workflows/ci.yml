@@ -60,7 +60,7 @@ jobs:
           uv run python scripts/export_openapi.py
           git diff --exit-code -- openapi.json
       - name: Run tests with coverage
-        run: uv run --locked --no-build pytest --cov --cov-report=term-missing --cov-report=xml:coverage.xml
+        run: .venv/bin/python -m pytest --cov --cov-report=term-missing --cov-report=xml:coverage.xml
       - name: Build source and wheel distributions
         run: uv build
       - name: Audit locked dependencies
