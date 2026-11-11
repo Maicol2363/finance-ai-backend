@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish coverage for the backend main commit
+    name: Publish coverage for the backend develop commit
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: 4385109c2ed21710a5ec9409cf0057df1ee9477f # main at the start of this coverage run
+          ref: be2de7621163783d722f548dd4f8f513cffc4fa2 # develop at the start of this coverage run
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -78,5 +78,5 @@ jobs:
             -Dsonar.tests=tests
             -Dsonar.sourceEncoding=UTF-8
             -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.branch.name=main
-            -Dsonar.scm.revision=4385109c2ed21710a5ec9409cf0057df1ee9477f
+            -Dsonar.branch.name=develop
+            -Dsonar.scm.revision=be2de7621163783d722f548dd4f8f513cffc4fa2
