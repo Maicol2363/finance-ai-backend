@@ -66,7 +66,11 @@ jobs:
       - name: Audit locked dependencies
         run: uv run pip-audit
       - name: Publish coverage to SonarQube Cloud
-        if: github.ref == 'refs/heads/main'
+        if: >-
+          github.ref == 'refs/heads/main' ||
+          (github.event_name == 'pull_request' &&
+           github.event.pull_request.head.repo.full_name == github.repository &&
+           github.actor != 'dependabot[bot]' && env.SONAR_TOKEN != '')
         continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
