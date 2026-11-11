@@ -61,4 +61,5 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["finance_ai"]
+relative_files = true
+source = ["src/finance_ai"]
