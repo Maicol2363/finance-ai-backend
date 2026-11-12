@@ -23,6 +23,11 @@ _JSON_AUTH_PATHS = {
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
 }
+_STAFF_AUTH_PATHS = {
+    "/api/v1/staff/auth/login",
+    "/api/v1/staff/auth/refresh",
+    "/api/v1/staff/auth/logout",
+}
 
 
 def _is_account_path(path: str) -> bool:
@@ -54,6 +59,74 @@ def _is_receipt_upload_path(path: str) -> bool:
 MAX_RECEIPT_REQUEST_BODY_BYTES = 10 * 1024 * 1024 + 64 * 1024
 
 
+class StaffNoStoreMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not str(scope.get("path", "")).startswith(
+            "/api/v1/staff/auth/"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        raw_correlation = headers.get(b"x-correlation-id", b"").decode("ascii", "ignore")
+        correlation_id = (
+            raw_correlation if _CORRELATION_PATTERN.fullmatch(raw_correlation) else uuid4().hex
+        )
+        scope.setdefault("state", {})["correlation_id"] = correlation_id
+
+        async def send_with_staff_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                response_headers = list(message.get("headers", []))
+                normalized = {key.lower() for key, _ in response_headers}
+                if b"cache-control" not in normalized:
+                    response_headers.append((b"cache-control", b"no-store"))
+                if b"pragma" not in normalized:
+                    response_headers.append((b"pragma", b"no-cache"))
+                if b"x-correlation-id" not in normalized:
+                    response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
+                message["headers"] = response_headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_staff_headers)
+
+
+class StaffCredentialedCorsMiddleware:
+    """Enable credentialed CORS only for the staff browser-auth API."""
+
+    def __init__(self, app: ASGIApp, *, allowed_origins: list[str]) -> None:
+        self.app = app
+        self.allowed_origins = frozenset(allowed_origins)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not str(scope.get("path", "")).startswith(
+            "/api/v1/staff/auth/"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        origin = headers.get(b"origin", b"").decode("latin-1")
+        if origin not in self.allowed_origins:
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_credentials(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                response_headers = list(message.get("headers", []))
+                if not any(
+                    key.lower() == b"access-control-allow-credentials"
+                    for key, _ in response_headers
+                ):
+                    response_headers.append((b"access-control-allow-credentials", b"true"))
+                message["headers"] = response_headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_credentials)
+
+
 class RequestBodyTooLargeError(Exception):
     pass
 
@@ -69,9 +142,15 @@ class RequestGuardMiddleware:
             return
 
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        existing_correlation = scope.get("state", {}).get("correlation_id")
         raw_correlation = headers.get(b"x-correlation-id", b"").decode("ascii", "ignore")
         correlation_id = (
-            raw_correlation if _CORRELATION_PATTERN.fullmatch(raw_correlation) else uuid4().hex
+            existing_correlation
+            if isinstance(existing_correlation, str)
+            and _CORRELATION_PATTERN.fullmatch(existing_correlation)
+            else raw_correlation
+            if _CORRELATION_PATTERN.fullmatch(raw_correlation)
+            else uuid4().hex
         )
         scope.setdefault("state", {})["correlation_id"] = correlation_id
         bind_correlation_id(correlation_id)
@@ -81,7 +160,7 @@ class RequestGuardMiddleware:
         is_registration = path == "/api/v1/auth/register" and method == "POST"
         auth_operation = _AUTH_OPERATIONS.get((method, path))
         guards_json_body = (
-            (method == "POST" and path in _JSON_AUTH_PATHS)
+            (method == "POST" and (path in _JSON_AUTH_PATHS or path in _STAFF_AUTH_PATHS))
             or (method in {"POST", "PATCH"} and _is_account_path(path))
             or (method in {"POST", "PATCH", "PUT"} and _is_category_path(path))
             or (method == "PATCH" and _is_expense_path(path))
@@ -176,9 +255,11 @@ class RequestGuardMiddleware:
             if message["type"] == "http.response.start":
                 status_code = int(message["status"])
                 response_headers = list(message.get("headers", []))
-                response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
+                if not any(key.lower() == b"x-correlation-id" for key, _ in response_headers):
+                    response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
                 if (
                     path.startswith("/api/v1/auth/")
+                    or path.startswith("/api/v1/staff/auth/")
                     or _is_account_path(path)
                     or _is_category_path(path)
                     or _is_expense_path(path)

@@ -29,6 +29,7 @@ class SessionRecord:
     idle_expires_at: datetime
     absolute_expires_at: datetime
     revoked_at: datetime | None
+    platform: str = "android"
 
 
 @dataclass(frozen=True)

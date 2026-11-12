@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -14,7 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from finance_ai.db.base import Base
+from finance_ai.db.base import Base, BigIntPK
 from finance_ai.db.models.identity import AppUser
 
 
@@ -33,7 +32,7 @@ class UserSession(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
     )
@@ -69,7 +68,7 @@ class RenewableCredential(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
     session_id: Mapped[int] = mapped_column(
         ForeignKey("user_session.id", ondelete="CASCADE"), nullable=False
     )

@@ -141,6 +141,96 @@ class ServiceUnavailableError(AppError):
         )
 
 
+class StaffSessionInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="session_invalid",
+            title="Session is no longer valid",
+            detail="Please log in again.",
+        )
+
+
+class StaffLoginInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="invalid_credentials",
+            title="Login failed",
+            detail="Invalid email or password.",
+        )
+
+
+class StaffAccessDeniedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="staff_access_denied",
+            title="Staff access denied",
+            detail="This account is not permitted to access the staff portal.",
+        )
+
+
+class StaffSessionExistsError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="staff_session_exists",
+            title="Staff session already exists",
+            detail="A staff browser session is already active for this account.",
+        )
+
+
+class StaffSessionExpiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="access_expired",
+            title="Staff access expired",
+            detail="Refresh the staff session to continue.",
+        )
+
+
+class StaffAuthenticationRequiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="authentication_required",
+            title="Authentication required",
+            detail="Please log in to continue.",
+        )
+
+
+class StaffOriginDeniedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="staff_origin_denied",
+            title="Request origin denied",
+            detail="This request origin is not allowed.",
+        )
+
+
+class StaffRequestDeniedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="staff_request_denied",
+            title="Request denied",
+            detail="This request could not be authorized.",
+        )
+
+
+class AuditUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="audit_unavailable",
+            title="Authentication is temporarily unavailable",
+            detail="The request could not be completed securely. Please try again later.",
+        )
+
+
 class AccountNameConflictError(AppError):
     def __init__(self) -> None:
         super().__init__(
@@ -539,7 +629,7 @@ def _validation_field_errors(exc: RequestValidationError) -> dict[str, list[str]
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-        return JSONResponse(
+        response = JSONResponse(
             status_code=exc.status,
             headers=exc.headers,
             content=problem_payload(
@@ -551,6 +641,28 @@ def install_exception_handlers(app: FastAPI) -> None:
                 field_errors=exc.field_errors,
             ),
         )
+        if request.url.path.startswith("/api/v1/staff/auth/") and exc.code in {
+            "session_invalid",
+            "staff_access_denied",
+        }:
+            from finance_ai.core.config import get_settings
+
+            settings = get_settings()
+            secure = settings.environment == "production" or request.url.scheme == "https"
+            cookie_names = (
+                ("__Host-finance_staff_access", "__Host-finance_staff_refresh")
+                if settings.environment == "production"
+                else ("finance_staff_access", "finance_staff_refresh")
+            )
+            for cookie_name in cookie_names:
+                response.delete_cookie(
+                    cookie_name,
+                    path="/",
+                    secure=secure,
+                    httponly=True,
+                    samesite="strict",
+                )
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(

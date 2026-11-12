@@ -6,7 +6,11 @@ from finance_ai.api.router import api_router
 from finance_ai.core.config import get_settings
 from finance_ai.core.errors import install_exception_handlers
 from finance_ai.core.logging import configure_logging
-from finance_ai.core.middleware import RequestGuardMiddleware
+from finance_ai.core.middleware import (
+    RequestGuardMiddleware,
+    StaffCredentialedCorsMiddleware,
+    StaffNoStoreMiddleware,
+)
 
 
 def create_app() -> FastAPI:
@@ -26,9 +30,14 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_allowed_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
+        allow_headers=["Authorization", "Content-Type", "X-Correlation-ID", "X-Staff-Request"],
         expose_headers=["X-Correlation-ID"],
     )
+    app.add_middleware(
+        StaffCredentialedCorsMiddleware,
+        allowed_origins=settings.cors_allowed_origins,
+    )
+    app.add_middleware(StaffNoStoreMiddleware)
     app.include_router(api_router)
 
     @app.get("/", include_in_schema=False)
