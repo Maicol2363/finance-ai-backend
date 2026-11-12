@@ -187,13 +187,7 @@ async def _run_load(
     try:
         for client, (email, password) in zip(clients, accounts, strict=True):
             if mode == "staff":
-                response = await client.post(
-                    "/api/v1/staff/auth/login",
-                    json={"email": email, "password": password},
-                    headers={"Origin": origin, "X-Staff-Request": "1"},
-                )
-                if response.status_code != 200:
-                    raise RuntimeError(f"Staff login setup failed with HTTP {response.status_code}")
+                await _login_staff_account(client, email, password, origin)
                 credentials.append(None)
             else:
                 credentials.append(password)
@@ -260,6 +254,27 @@ async def _run_load(
         }
     finally:
         await asyncio.gather(*(client.aclose() for client in clients))
+
+
+async def _login_staff_account(client, email: str, password: str, origin: str) -> None:
+    """Create one benchmark session, waiting when the API throttles setup logins."""
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        response = await client.post(
+            "/api/v1/staff/auth/login",
+            json={"email": email, "password": password},
+            headers={"Origin": origin, "X-Staff-Request": "1"},
+        )
+        if response.status_code != 429 or attempt == max_attempts - 1:
+            break
+        try:
+            retry_after = max(1, int(response.headers.get("Retry-After", "1")))
+        except ValueError:
+            retry_after = 1
+        await asyncio.sleep(retry_after + 0.1)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Staff login setup failed with HTTP {response.status_code}")
 
 
 def main() -> int:
