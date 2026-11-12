@@ -15,6 +15,8 @@ from finance_ai.db.session import get_session_factory
 from finance_ai.staff_auth.schemas import StaffSessionUser
 from finance_ai.staff_auth.service import StaffSessionService
 
+StaffCookieSettings = tuple[bool, Literal["strict"], bool]
+
 
 def get_staff_session_service() -> StaffSessionService:
     return StaffSessionService(
@@ -79,6 +81,11 @@ def staff_cookie_settings(request: Request) -> tuple[bool, Literal["strict"], bo
     if not settings.staff_local_cookie_exception_enabled or not _is_loopback_host(parsed.hostname):
         raise StaffOriginDeniedError()
     return False, "strict", True
+
+
+def require_staff_cookie_transport(request: Request) -> StaffCookieSettings:
+    """Validate cookie transport before a login, refresh, or logout can mutate state."""
+    return staff_cookie_settings(request)
 
 
 def _is_allowed_local_origin(parsed: object, settings: Settings) -> bool:

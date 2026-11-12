@@ -27,6 +27,9 @@ class StubStaffSessionService:
     def __init__(self) -> None:
         self.cookies: tuple[str | None, str | None] | None = None
         self.fail = False
+        self.login_calls = 0
+        self.refresh_calls = 0
+        self.logout_calls = 0
 
     @staticmethod
     def _user() -> StaffSessionUser:
@@ -39,11 +42,13 @@ class StubStaffSessionService:
 
     def login(self, command, *, correlation_id):  # type: ignore[no-untyped-def]
         del command, correlation_id
+        self.login_calls += 1
         access_expiry, idle_expiry, absolute_expiry = self._expiries()
         return self._user(), "a" * 43, "b" * 43, access_expiry, idle_expiry, absolute_expiry
 
     def refresh(self, raw_refresh, *, correlation_id):  # type: ignore[no-untyped-def]
         del correlation_id
+        self.refresh_calls += 1
         self.cookies = (raw_refresh, None)
         if self.fail:
             from finance_ai.core.errors import AuditUnavailableError
@@ -63,6 +68,7 @@ class StubStaffSessionService:
 
     def logout(self, raw_refresh, raw_access, *, correlation_id):  # type: ignore[no-untyped-def]
         del correlation_id
+        self.logout_calls += 1
         self.cookies = (raw_refresh, raw_access)
 
 
@@ -96,6 +102,7 @@ def test_login_issues_httponly_secure_cookies_without_credentials_in_json(
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-correlation-id"]
+    assert response.headers.get("access-control-allow-credentials") is None
     assert response.json()["user"]["role"] == "support_agent"
     assert "a" * 43 not in response.text and "b" * 43 not in response.text
     assert "never-return-this" not in response.text
@@ -148,7 +155,7 @@ def test_logout_passes_both_cookie_credentials_to_revocation_service(
     assert len(response.headers.get_list("set-cookie")) == 2
 
 
-def test_credentialed_preflight_is_exact_origin_and_non_cacheable(
+def test_staff_preflight_is_exact_origin_and_never_allows_credentials(
     staff_client: tuple[TestClient, StubStaffSessionService],
 ) -> None:
     client, _ = staff_client
@@ -162,9 +169,56 @@ def test_credentialed_preflight_is_exact_origin_and_non_cacheable(
     )
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == ORIGIN
-    assert response.headers["access-control-allow-credentials"] == "true"
+    assert response.headers.get("access-control-allow-credentials") is None
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-correlation-id"]
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "json_body", "cookies", "service_call"),
+    [
+        (
+            "/api/v1/staff/auth/login",
+            "post",
+            {"email": "agent@example.test", "password": "not-a-real-password"},
+            None,
+            "login_calls",
+        ),
+        (
+            "/api/v1/staff/auth/refresh",
+            "post",
+            {},
+            {"finance_staff_refresh": "r" * 43},
+            "refresh_calls",
+        ),
+        (
+            "/api/v1/staff/auth/logout",
+            "post",
+            {},
+            {"finance_staff_refresh": "r" * 43},
+            "logout_calls",
+        ),
+    ],
+)
+def test_cookie_transport_is_rejected_before_session_mutations(
+    staff_client: tuple[TestClient, StubStaffSessionService],
+    path: str,
+    method: str,
+    json_body: dict[str, str],
+    cookies: dict[str, str] | None,
+    service_call: str,
+) -> None:
+    client, service = staff_client
+    response = getattr(client, method)(
+        f"http://staff.example.test{path}",
+        json=json_body,
+        headers={"Origin": ORIGIN, "X-Staff-Request": "1"},
+        cookies=cookies,
+    )
+
+    assert response.status_code == 403
+    assert response.headers.get_list("set-cookie") == []
+    assert getattr(service, service_call) == 0
 
 
 def test_refresh_audit_failure_does_not_clear_existing_cookies(

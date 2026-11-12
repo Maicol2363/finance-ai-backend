@@ -10,11 +10,12 @@ from finance_ai.auth.dependencies import get_session_rate_limiter
 from finance_ai.core.errors import ProblemResponse
 from finance_ai.core.rate_limit import AuthRateLimiter
 from finance_ai.staff_auth.dependencies import (
+    StaffCookieSettings,
     get_staff_access_user,
     get_staff_session_service,
+    require_staff_cookie_transport,
     require_staff_request_boundary,
     staff_cookie_names,
-    staff_cookie_settings,
 )
 from finance_ai.staff_auth.schemas import (
     StaffLoginCommand,
@@ -47,15 +48,15 @@ def _session_view(
 
 def _set_session_cookies(
     response: Response,
-    request: Request,
     *,
     access: str,
     refresh: str,
     access_expires_at: datetime,
     idle_expires_at: datetime,
+    cookie_settings: StaffCookieSettings,
 ) -> None:
     access_name, refresh_name = staff_cookie_names()
-    secure, same_site, http_only = staff_cookie_settings(request)
+    secure, same_site, http_only = cookie_settings
     now = datetime.now(UTC)
     access_max_age = max(0, int((access_expires_at - now).total_seconds()))
     refresh_max_age = max(0, int((idle_expires_at - now).total_seconds()))
@@ -79,8 +80,8 @@ def _set_session_cookies(
     )
 
 
-def _clear_session_cookies(response: Response, request: Request) -> None:
-    secure, same_site, http_only = staff_cookie_settings(request)
+def _clear_session_cookies(response: Response, cookie_settings: StaffCookieSettings) -> None:
+    secure, same_site, http_only = cookie_settings
     for cookie_name in staff_cookie_names():
         response.delete_cookie(
             cookie_name,
@@ -109,6 +110,7 @@ def staff_login(
     request: Request,
     response: Response,
     _boundary: Annotated[None, Depends(require_staff_request_boundary)],
+    cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
     service: Annotated[StaffSessionService, Depends(get_staff_session_service)],
     limiter: Annotated[AuthRateLimiter, Depends(get_session_rate_limiter)],
 ) -> StaffSessionView:
@@ -120,11 +122,11 @@ def staff_login(
     )
     _set_session_cookies(
         response,
-        request,
         access=access,
         refresh=refresh,
         access_expires_at=access_expires_at,
         idle_expires_at=idle_expires_at,
+        cookie_settings=cookie_settings,
     )
     return _session_view(user, access_expires_at, idle_expires_at, absolute_expires_at)
 
@@ -171,6 +173,7 @@ def staff_refresh(
     request: Request,
     response: Response,
     _: Annotated[None, Depends(require_staff_request_boundary)],
+    cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
     service: Annotated[StaffSessionService, Depends(get_staff_session_service)],
     limiter: Annotated[AuthRateLimiter, Depends(get_session_rate_limiter)],
 ) -> StaffSessionView:
@@ -191,11 +194,11 @@ def staff_refresh(
     )
     _set_session_cookies(
         response,
-        request,
         access=access,
         refresh=refresh,
         access_expires_at=access_expires_at,
         idle_expires_at=idle_expires_at,
+        cookie_settings=cookie_settings,
     )
     return _session_view(user, access_expires_at, idle_expires_at, absolute_expires_at)
 
@@ -222,6 +225,7 @@ def staff_logout(
     payload: EmptyStaffRequest,
     request: Request,
     _: Annotated[None, Depends(require_staff_request_boundary)],
+    cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
     service: Annotated[StaffSessionService, Depends(get_staff_session_service)],
 ) -> Response:
     del payload
@@ -232,5 +236,5 @@ def staff_logout(
         correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
     )
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    _clear_session_cookies(response, request)
+    _clear_session_cookies(response, cookie_settings)
     return response

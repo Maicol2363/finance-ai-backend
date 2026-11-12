@@ -93,40 +93,6 @@ class StaffNoStoreMiddleware:
         await self.app(scope, receive, send_with_staff_headers)
 
 
-class StaffCredentialedCorsMiddleware:
-    """Enable credentialed CORS only for the staff browser-auth API."""
-
-    def __init__(self, app: ASGIApp, *, allowed_origins: list[str]) -> None:
-        self.app = app
-        self.allowed_origins = frozenset(allowed_origins)
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not str(scope.get("path", "")).startswith(
-            "/api/v1/staff/auth/"
-        ):
-            await self.app(scope, receive, send)
-            return
-
-        headers = {key.lower(): value for key, value in scope.get("headers", [])}
-        origin = headers.get(b"origin", b"").decode("latin-1")
-        if origin not in self.allowed_origins:
-            await self.app(scope, receive, send)
-            return
-
-        async def send_with_credentials(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                response_headers = list(message.get("headers", []))
-                if not any(
-                    key.lower() == b"access-control-allow-credentials"
-                    for key, _ in response_headers
-                ):
-                    response_headers.append((b"access-control-allow-credentials", b"true"))
-                message["headers"] = response_headers
-            await send(message)
-
-        await self.app(scope, receive, send_with_credentials)
-
-
 class RequestBodyTooLargeError(Exception):
     pass
 
