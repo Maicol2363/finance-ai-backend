@@ -171,6 +171,29 @@ class StaffAccessDeniedError(AppError):
         )
 
 
+class SupportTicketNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="support_ticket_not_found",
+            title="Ticket not found",
+            detail="The requested support ticket is unavailable.",
+        )
+
+
+class SupportTicketClaimConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="support_ticket_claim_conflict",
+            title="Ticket is no longer available",
+            detail=(
+                "Another agent claimed this ticket or it is no longer claimable. "
+                "Refresh the queue and try again."
+            ),
+        )
+
+
 class StaffSessionExistsError(AppError):
     def __init__(self) -> None:
         super().__init__(

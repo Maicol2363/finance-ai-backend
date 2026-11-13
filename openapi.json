@@ -3838,6 +3838,149 @@
         "title": "TextProposalResponse",
         "type": "object"
       },
+      "TicketClaimResult": {
+        "additionalProperties": false,
+        "properties": {
+          "assigned_staff_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Staff User Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "status",
+          "created_at",
+          "assigned_staff_user_id"
+        ],
+        "title": "TicketClaimResult",
+        "type": "object"
+      },
+      "TicketDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "assigned_staff_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Staff User Id"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "status",
+          "created_at",
+          "assigned_staff_user_id",
+          "category",
+          "description"
+        ],
+        "title": "TicketDetail",
+        "type": "object"
+      },
+      "TicketQueueItem": {
+        "additionalProperties": false,
+        "properties": {
+          "assigned_staff_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Staff User Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "status",
+          "created_at",
+          "assigned_staff_user_id"
+        ],
+        "title": "TicketQueueItem",
+        "type": "object"
+      },
+      "TicketStatus": {
+        "enum": [
+          "open",
+          "in_progress",
+          "escalated",
+          "resolved"
+        ],
+        "title": "TicketStatus",
+        "type": "string"
+      },
       "TopCategoryItem": {
         "additionalProperties": false,
         "properties": {
@@ -9700,6 +9843,143 @@
         "summary": "Staff Session",
         "tags": [
           "Staff browser authentication"
+        ]
+      }
+    },
+    "/api/v1/staff/support/tickets": {
+      "get": {
+        "operationId": "list_tickets_api_v1_staff_support_tickets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TicketStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TicketQueueItem"
+                  },
+                  "title": "Response List Tickets Api V1 Staff Support Tickets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Tickets",
+        "tags": [
+          "Staff support tickets"
+        ]
+      }
+    },
+    "/api/v1/staff/support/tickets/{ticket_id}": {
+      "get": {
+        "operationId": "get_ticket_api_v1_staff_support_tickets__ticket_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Ticket",
+        "tags": [
+          "Staff support tickets"
+        ]
+      }
+    },
+    "/api/v1/staff/support/tickets/{ticket_id}/claim": {
+      "post": {
+        "operationId": "claim_ticket_api_v1_staff_support_tickets__ticket_id__claim_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketClaimResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Ticket",
+        "tags": [
+          "Staff support tickets"
         ]
       }
     },
