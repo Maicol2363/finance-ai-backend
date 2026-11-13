@@ -114,6 +114,8 @@ class SessionService:
             renewable = uow.sessions.lock_renewable_by_hash(renewable_hash)
             if session is None or renewable is None or renewable.session_id != session_id:
                 raise SessionInvalidError
+            if session.platform not in {"android", "windows"}:
+                raise SessionInvalidError
 
             invalid_reason = self._invalid_refresh_reason(
                 session_revoked=session.revoked_at is not None,
@@ -187,7 +189,11 @@ class SessionService:
             if session_id is None:
                 return
             session = uow.sessions.lock_session(session_id)
-            if session is not None and session.revoked_at is None:
+            if (
+                session is not None
+                and session.platform in {"android", "windows"}
+                and session.revoked_at is None
+            ):
                 uow.sessions.revoke(session_id=session_id, now=now, reason="logout")
             uow.commit()
 

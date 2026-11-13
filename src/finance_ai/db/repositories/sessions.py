@@ -154,6 +154,7 @@ class SQLAlchemySessionRepository:
             idle_expires_at=session.idle_expires_at,
             absolute_expires_at=session.absolute_expires_at,
             revoked_at=session.revoked_at,
+            platform=session.platform,
         )
 
     def lock_renewable_by_hash(self, token_hash: str) -> RenewableRecord | None:
@@ -214,6 +215,7 @@ class SQLAlchemySessionRepository:
             .join(Currency, Currency.id == AppUser.preferred_currency_id)
             .where(
                 UserSession.access_token_hash == access_token_hash,
+                UserSession.platform.in_(("android", "windows")),
                 UserSession.revoked_at.is_(None),
                 UserSession.access_expires_at > now,
                 UserSession.idle_expires_at > now,
