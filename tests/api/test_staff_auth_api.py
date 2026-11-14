@@ -174,6 +174,65 @@ def test_staff_preflight_is_exact_origin_and_never_allows_credentials(
     assert response.headers["x-correlation-id"]
 
 
+@pytest.mark.parametrize("path", ["/api/v1/categories/order", "/api/v1/incomes/1"])
+def test_put_preflight_accepts_allowed_origin(
+    staff_client: tuple[TestClient, StubStaffSessionService], path: str
+) -> None:
+    client, _ = staff_client
+    response = client.options(
+        path,
+        headers={
+            "Origin": ORIGIN,
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == ORIGIN
+    assert "PUT" in response.headers["access-control-allow-methods"].split(", ")
+
+
+@pytest.mark.parametrize(
+    ("origin", "method", "headers"),
+    [
+        ("https://untrusted.example.test", "POST", "content-type"),
+        (ORIGIN, "TRACE", "content-type"),
+        (ORIGIN, "POST", "x-private-header"),
+    ],
+)
+@pytest.mark.parametrize("path", ["/api/v1/categories/order", "/api/v1/staff/auth/login"])
+def test_rejected_preflight_returns_safe_diagnostic(
+    staff_client: tuple[TestClient, StubStaffSessionService],
+    origin: str,
+    method: str,
+    headers: str,
+    path: str,
+) -> None:
+    client, _ = staff_client
+    response = client.options(
+        path,
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": method,
+            "Access-Control-Request-Headers": headers,
+        },
+    )
+    assert response.status_code == 400
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers.get("access-control-allow-credentials") is None
+    assert response.headers.get("access-control-allow-origin") == (
+        ORIGIN if origin == ORIGIN else None
+    )
+    assert response.headers["x-correlation-id"]
+    problem = response.json()
+    assert problem["status"] == 400
+    assert problem["correlation_id"] == response.headers["x-correlation-id"]
+    assert problem["code"] == "cors_preflight_rejected"
+    for supplied_value in (origin, method, headers):
+        assert supplied_value not in response.text
+
+
 @pytest.mark.parametrize(
     ("path", "method", "json_body", "cookies", "service_call"),
     [

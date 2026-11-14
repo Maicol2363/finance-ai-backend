@@ -65,6 +65,9 @@ def clean_rows(migrated_test_database: None):
         )
         session.commit()
     yield
+    with get_session_factory()() as session:
+        session.execute(text("TRUNCATE TABLE security_audit_event"))
+        session.commit()
 
 
 def create_authorized_service() -> tuple[StaffSessionService, str]:
