@@ -49,7 +49,7 @@ class TicketWorkflow:
         )
         self.audit.append(
             session,
-            event_type=f"support.{event}",
+            event_type="ticket.escalated" if event == "ticket_escalated" else f"support.{event}",
             actor_id=str(actor),
             target_id=str(ticket_id),
             result="success",

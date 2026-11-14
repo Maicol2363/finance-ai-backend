@@ -126,6 +126,7 @@ Para detener conservando datos: sustituir `down -v` por `stop`.
   bloqueo del ticket conservando origen, y aplicar su retorno atómico documentado.
   No se concede al Support Agent ninguna operación administrativa. Los endpoints
   administrativos y su MFA se entregan en las historias administrativas, no aquí.
+- El evento de seguridad de escalamiento usa el nombre canónico SEC-02 `ticket.escalated`.
 - No cambia el esquema: todas las columnas/índices proceden de la migración 0018.
   Auditoría, actividad y mutación comparten transacción. Las transiciones y envíos
   bloquean el mismo ticket en PostgreSQL; no hay estado terminal con respuestas
@@ -141,7 +142,8 @@ nuevas y las categorías/límites técnicos elegidos. No se marca Trello como te
 ## Comandos de verificación
 
 ```bash
-# Backend: base desechable cuyo nombre termina en _test; nunca producción.
+# Backend: base NUEVA desechable cuyo nombre termina en _test; nunca producción.
+# La protección append-only impide hacer downgrade de una base con auditoría previa.
 uv sync --frozen
 uv run ruff format --check .
 uv run ruff check .

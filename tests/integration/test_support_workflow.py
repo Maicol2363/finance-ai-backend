@@ -195,6 +195,13 @@ def test_escalation_read_only_internal_reason_and_origin_preserved(people):
             )
         )
         assert activity.internal_reason == "INTERNAL-REASON-SECRET"
+        audit = session.scalar(
+            select(SecurityAuditEvent).where(
+                SecurityAuditEvent.target_resource_id == str(ticket_id),
+                SecurityAuditEvent.event_type == "ticket.escalated",
+            )
+        )
+        assert audit is not None and audit.context == {}
 
 
 def test_exact_lookup_and_agent_creation(people):

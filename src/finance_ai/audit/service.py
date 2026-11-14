@@ -17,7 +17,7 @@ _ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         "support.ticket_claimed",
         "support.ticket_created",
         "support.message_sent",
-        "support.ticket_escalated",
+        "ticket.escalated",
         "support.ticket_resolved",
         "support.customer_lookup",
     }
