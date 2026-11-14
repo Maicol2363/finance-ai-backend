@@ -14,6 +14,12 @@ _ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         "staff.refresh",
         "staff.session_revoked",
         "staff.logout",
+        "support.ticket_claimed",
+        "support.ticket_created",
+        "support.message_sent",
+        "ticket.escalated",
+        "support.ticket_resolved",
+        "support.customer_lookup",
     }
 )
 _ALLOWED_CONTEXT_KEYS: Final[frozenset[str]] = frozenset({"reason"})
@@ -39,7 +45,11 @@ class SecurityAuditWriter:
             SecurityAuditEvent(
                 event_type=event_type,
                 actor_id=actor_id,
-                target_resource_type="staff_session" if target_id is not None else None,
+                target_resource_type=(
+                    "staff_session" if event_type.startswith("staff.") else "support_ticket"
+                )
+                if target_id is not None
+                else None,
                 target_resource_id=target_id,
                 occurred_at=datetime.now(UTC),
                 result=result,

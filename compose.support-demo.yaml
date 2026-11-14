@@ -1,0 +1,41 @@
+# Isolated fictional data. Always use the project name finance-support-demo.
+services:
+  database:
+    image: postgres:18.6-bookworm
+    environment:
+      POSTGRES_DB: support_demo_test
+      POSTGRES_USER: support_demo
+      POSTGRES_PASSWORD: local-demo-only
+    volumes:
+      - support-demo-data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U support_demo -d support_demo_test]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+  api:
+    build:
+      context: .
+      target: runtime
+    environment:
+      FINANCE_AI_ENVIRONMENT: local
+      FINANCE_AI_DATABASE_URL: postgresql+psycopg://support_demo:local-demo-only@database:5432/support_demo_test
+      FINANCE_AI_CORS_ALLOWED_ORIGINS: '["http://127.0.0.1:5173","http://localhost:5173","http://127.0.0.1:4173"]'
+      FINANCE_AI_STAFF_LOCAL_COOKIE_EXCEPTION_ENABLED: 'true'
+    volumes:
+      - ./scripts/seed_support_demo.py:/app/scripts/seed_support_demo.py:ro
+      - support-demo-credentials:/app/demo-data
+    command: [sh, -c, 'alembic upgrade head && python -m finance_ai.db.seeds && python scripts/seed_support_demo.py && exec uvicorn finance_ai.main:app --host 0.0.0.0 --port 8000']
+    ports: ["127.0.0.1:8001:8000"]
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [private, client-access]
+networks:
+  private:
+    internal: true
+  client-access: {}
+volumes:
+  support-demo-data: {}
+  support-demo-credentials: {}
