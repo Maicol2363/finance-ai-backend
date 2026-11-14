@@ -15,6 +15,11 @@ _ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         "staff.session_revoked",
         "staff.logout",
         "support.ticket_claimed",
+        "support.ticket_created",
+        "support.message_sent",
+        "support.ticket_escalated",
+        "support.ticket_resolved",
+        "support.customer_lookup",
     }
 )
 _ALLOWED_CONTEXT_KEYS: Final[frozenset[str]] = frozenset({"reason"})

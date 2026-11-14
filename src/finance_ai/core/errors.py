@@ -748,3 +748,13 @@ def install_exception_handlers(app: FastAPI) -> None:
                 correlation_id=correlation_id_from(request),
             ),
         )
+
+
+class SupportTicketStateConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="support_ticket_state_conflict",
+            title="Ticket state conflict",
+            detail="This operation is not allowed in the current ticket state.",
+        )

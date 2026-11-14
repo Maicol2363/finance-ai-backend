@@ -59,7 +59,11 @@ class SupportTicketService:
             SupportTicket.description,
         ).where(
             SupportTicket.id == ticket_id,
-            SupportTicket.assigned_staff_user_id == user.id,
+            (SupportTicket.assigned_staff_user_id == user.id)
+            | (
+                (SupportTicket.originating_support_agent_id == user.id)
+                & (SupportTicket.status == TicketStatus.ESCALATED.value)
+            ),
         )
         with self._session_factory() as session:
             row = session.execute(statement).mappings().one_or_none()
