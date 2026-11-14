@@ -1,8 +1,7 @@
 # ──────────────────────────────────────────────
 # Finance AI Backend — CD: Deploy to Google Cloud Run
 # ──────────────────────────────────────────────
-# Deploys only main to the shared finance-api production service.
-# Keep develop blocked until a separate staging service and database exist.
+# Deploys successful main builds to the finance-api production service.
 # ──────────────────────────────────────────────
 name: Deploy to Google Cloud Run
 
@@ -16,7 +15,6 @@ on:
 permissions:
   actions: read
   contents: read
-  id-token: write
 
 env:
   PROJECT_ID: finance-ai-api
@@ -37,13 +35,15 @@ jobs:
          github.event.workflow_run.head_branch == 'main')
       }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     concurrency: deploy-group
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
 
       - name: Verify successful Backend CI for manual dispatch SHA
         if: github.event_name == 'workflow_dispatch'
@@ -66,21 +66,17 @@ jobs:
             exit 1
           fi
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.5"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Run database migrations (Neon)
+      - name: Verify production secrets are configured
         env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           FINANCE_AI_DATABASE_URL: ${{ secrets.FINANCE_AI_DATABASE_URL }}
-        if: env.FINANCE_AI_DATABASE_URL != ''
         run: |
-          uv sync --frozen --no-dev
-          uv run alembic upgrade head
-          uv run python -m finance_ai.db.seeds
+          for secret in GCP_SA_KEY FINANCE_AI_DATABASE_URL; do
+            if [[ -z "${!secret}" ]]; then
+              echo "::error::Missing required GitHub Actions secret: $secret"
+              exit 1
+            fi
+          done
 
       - name: Build runtime container
         run: |
@@ -92,14 +88,6 @@ jobs:
             .
 
       - name: Authenticate to Google Cloud
-        if: >-
-          ${{
-            (github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref_name == 'main') ||
-            (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
-             github.event.workflow_run.conclusion == 'success' &&
-             github.event.workflow_run.head_repository.id == github.repository_id &&
-             github.event.workflow_run.head_branch == 'main')
-          }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -115,6 +103,23 @@ jobs:
         run: |
           docker push "$IMAGE"
 
+      - name: Verify the release SHA is still the tip of main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$SOURCE_SHA" != "$main_sha" ]]; then
+            echo "::error::This run targets an older commit. Deploy the current main commit after CI passes."
+            exit 1
+          fi
+
+      - name: Apply Neon migrations and reference seeds
+        env:
+          FINANCE_AI_DATABASE_URL: ${{ secrets.FINANCE_AI_DATABASE_URL }}
+        run: |
+          docker run --rm --env FINANCE_AI_DATABASE_URL "$IMAGE" alembic upgrade head
+          docker run --rm --env FINANCE_AI_DATABASE_URL "$IMAGE" python -m finance_ai.db.seeds
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${{ env.SERVICE_NAME }}" \
@@ -126,7 +131,7 @@ jobs:
             --cpu=1 \
             --min-instances=0 \
             --max-instances=3 \
-            --allow-unauthenticated \
+            --startup-probe="httpGet.path=/health/ready,httpGet.port=8000,periodSeconds=5,timeoutSeconds=4,failureThreshold=12" \
             --quiet
 
       - name: Verify deployment health
@@ -137,12 +142,12 @@ jobs:
             --format='value(status.url)')
 
           echo "Target service URL: $URL"
-          echo "Checking /health/live..."
-          curl -fsS "$URL/health/live"
+          echo "Checking /health/ready..."
+          curl --fail --silent --show-error --max-time 15 "$URL/health/ready"
           echo ""
 
           echo "Checking protected endpoint..."
-          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "$URL/api/v1/income-sources")
+          STATUS=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "$URL/api/v1/income-sources")
           echo "Protected endpoint response: HTTP $STATUS"
           if [ "$STATUS" != "401" ]; then
             echo "Expected HTTP 401 from protected endpoint, got $STATUS"
