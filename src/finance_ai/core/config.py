@@ -1,8 +1,9 @@
+import base64
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +51,23 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=30.0, ge=1, le=120)
     llm_max_output_tokens: int = Field(default=2_048, ge=256, le=8_192)
     llm_max_image_bytes: int = Field(default=1_048_576, ge=1_024, le=5_242_880)
+    # SEC-01 staff TOTP. The key is a base64url-encoded 32-byte AES-256-GCM key supplied by
+    # deployment configuration; without it privileged MFA sign-in fails closed.
+    staff_mfa_encryption_key: SecretStr | None = None
+    staff_mfa_issuer: str = Field(default="FinanciAI", pattern=r"^[A-Za-z0-9 ._-]{1,64}$")
+    staff_mfa_challenge_minutes: int = Field(default=5, ge=1, le=15)
+    staff_mfa_max_attempts: int = Field(default=5, ge=1, le=10)
+    # AUD-01..AUD-04 query/export bounds. They are request limits, not retention policy.
+    audit_max_query_days: int = Field(default=90, ge=1, le=366)
+    audit_max_report_events: int = Field(default=2_000, ge=1, le=10_000)
+
+    @field_validator("staff_mfa_encryption_key", mode="before")
+    @classmethod
+    def blank_mfa_key_means_unconfigured(cls, value: object) -> object:
+        # Compose passes unset variables as empty strings; that must not stop the API.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def reject_disposable_defaults_outside_local(self) -> Settings:
@@ -61,6 +79,10 @@ class Settings(BaseSettings):
             raise ValueError("A non-disposable session limiter secret is required in production")
         if self.renewable_idle_lifetime_days > self.session_absolute_lifetime_days:
             raise ValueError("Renewable idle lifetime cannot exceed absolute session lifetime")
+        if self.staff_mfa_encryption_key is not None and not _is_aes256_key(
+            self.staff_mfa_encryption_key.get_secret_value()
+        ):
+            raise ValueError("The staff MFA encryption key must be 32 base64url-encoded bytes")
         return self
 
     @property
@@ -68,6 +90,13 @@ class Settings(BaseSettings):
         if self.unsafe_passwords_path is not None:
             return self.unsafe_passwords_path
         return Path(__file__).resolve().parents[1] / "resources" / "common-passwords.txt"
+
+
+def _is_aes256_key(encoded: str) -> bool:
+    try:
+        return len(base64.urlsafe_b64decode(encoded.strip() + "=" * (-len(encoded) % 4))) == 32
+    except ValueError:
+        return False
 
 
 @lru_cache

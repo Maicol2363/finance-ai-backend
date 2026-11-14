@@ -33,6 +33,12 @@ The schema mapping and limitations are recorded in `aidlc-docs/inception/require
 
 The locked TOTP, authenticated-encryption, QR-generation and PDF libraries prepare for later story implementations. No OTP, encryption, QR enrollment or PDF workflow is implemented in this foundation.
 
+## Security Auditor (PB-016, AUD-01–AUD-04)
+
+The `security_auditor` role uses the staff browser session with password plus TOTP (the SEC-01 consumer for this role): the password step returns HTTP 202 and a short-lived challenge; `/api/v1/staff/auth/mfa/enrollment`, `/mfa/verify` and `/mfa/cancel` complete it. Migration `0019_staff_mfa_challenge` adds the challenge table; TOTP secrets are AES-256-GCM encrypted with `FINANCE_AI_STAFF_MFA_ENCRYPTION_KEY` (32 random bytes, base64url). Without that key, Auditor sign-in fails closed and other roles are unaffected.
+
+The read-only Auditor API lives under `/api/v1/staff/audit/` (`catalog`, `events`, `events/{event_id}`, `investigations/{account_id}`, `summary`, `reports`). Every request rechecks the active account, current role, authoritative activation and MFA assurance; Support Agents are denied with a recorded `access.denied`, and `security_auditor` cannot authenticate to the customer API. Query and export bounds are `FINANCE_AI_AUDIT_MAX_QUERY_DAYS` (default 90) and `FINANCE_AI_AUDIT_MAX_REPORT_EVENTS` (default 2000). PDF reports come from one `REPEATABLE READ` snapshot and are delivered only after `audit.report_exported` is durably recorded. See `docs/SECURITY-AUDITOR-MVP.md` for the metric mappings, design decisions and the isolated local demo (`compose.audit-demo.yaml`).
+
 ## Financial accounts (HU-003)
 
 Authenticated users can manage the places where their money is held:

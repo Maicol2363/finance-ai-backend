@@ -24,7 +24,7 @@ The audit event actor and target are historical identifiers rather than cascadin
 ## Unresolved decisions kept for later
 
 - Final Auditor query scope, date/time-zone presentation, actor/target lookup behavior, and report content/limits must follow the finalized AUD stories.
-- Whether security_auditor requires MFA and whether multiple authenticators per administrator are allowed remain undecided.
+- Resolved by the approved SEC-01/AUD stories: security_auditor requires password plus TOTP (implemented for the Auditor with migration 0019's short-lived challenge table; one active authenticator per account). Multiple authenticators per administrator and Administrator MFA wiring remain open.
 - Invitation and TOTP lifetimes, identity recovery, secret-key provisioning, exact text limits, ticket category list and audit failure transaction policy are future technical-design or story decisions.
 - Browser authentication remains disabled until a secure browser session contract is implemented. The API client does not store credentials or invent endpoints.
 

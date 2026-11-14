@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session, lazyload, sessionmaker
 
 from finance_ai.audit.service import SecurityAuditWriter
-from finance_ai.auth.credentials import CredentialCodec
+from finance_ai.auth.credentials import CredentialCodec, IssuedCredential
 from finance_ai.auth.passwords import PasswordHasher
 from finance_ai.auth.session_policy import Clock
 from finance_ai.core.errors import (
     AuditUnavailableError,
+    MfaAlreadyEnrolledError,
+    MfaChallengeInvalidError,
+    MfaCodeInvalidError,
+    MfaEnrollmentRequiredError,
+    MfaUnavailableError,
     StaffAccessDeniedError,
     StaffAuthenticationRequiredError,
     StaffLoginInvalidError,
@@ -18,11 +24,40 @@ from finance_ai.core.errors import (
     StaffSessionExpiredError,
     StaffSessionInvalidError,
 )
-from finance_ai.db.models.admin import StaffInvitation
+from finance_ai.core.roles import MFA_REQUIRED_ROLES, STAFF_PORTAL_ROLES
+from finance_ai.db.models.admin import AdminTotpFactor, StaffInvitation, StaffMfaChallenge
 from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
+from finance_ai.staff_auth.mfa import StaffMfaPolicy, provisioning_uri, qr_svg_data_url
 from finance_ai.staff_auth.schemas import StaffLoginCommand, StaffSessionUser
+
+StaffSessionIssue = tuple[StaffSessionUser, str, str, datetime, datetime, datetime]
+
+
+@dataclass(frozen=True)
+class StaffMfaChallengeIssued:
+    """Password verified; a second factor is still required. Grants no staff authority."""
+
+    raw_challenge: str
+    expires_at: datetime
+    enrollment_required: bool
+
+
+@dataclass(frozen=True)
+class StaffMfaEnrollment:
+    issuer: str
+    account_name: str
+    secret: str
+    otpauth_uri: str
+    qr_svg_data_url: str
+
+
+StaffLoginOutcome = StaffSessionIssue | StaffMfaChallengeIssued
+
+_ACCESS_LIFETIME = timedelta(minutes=15)
+_IDLE_LIFETIME = timedelta(minutes=30)
+_ABSOLUTE_LIFETIME = timedelta(hours=8)
 
 
 class StaffSessionService:
@@ -36,16 +71,16 @@ class StaffSessionService:
         credential_codec: CredentialCodec,
         clock: Clock,
         audit_writer: SecurityAuditWriter,
+        mfa: StaffMfaPolicy | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._password_hasher = password_hasher
         self._credential_codec = credential_codec
         self._clock = clock
         self._audit_writer = audit_writer
+        self._mfa = mfa
 
-    def login(
-        self, command: StaffLoginCommand, *, correlation_id: str
-    ) -> tuple[StaffSessionUser, str, str, datetime, datetime, datetime]:
+    def login(self, command: StaffLoginCommand, *, correlation_id: str) -> StaffLoginOutcome:
         email = command.email.strip().lower()
         with self._session_factory() as session:
             snapshot = session.execute(
@@ -64,16 +99,11 @@ class StaffSessionService:
         now = self._clock.now()
         access = self._credential_codec.issue()
         refresh = self._credential_codec.issue()
-        access_expires = now + timedelta(minutes=15)
-        idle_expires = now + timedelta(minutes=30)
-        absolute_expires = now + timedelta(hours=8)
-        if idle_expires > absolute_expires:
-            idle_expires = absolute_expires
-        if access_expires > idle_expires:
-            access_expires = idle_expires
+        challenge = self._credential_codec.issue()
+        access_expires, idle_expires, absolute_expires = _initial_expiries(now)
 
-        denial = False
-        conflict = False
+        outcome: str | None = None
+        result: StaffLoginOutcome | None = None
         try:
             with self._session_factory() as session, session.begin():
                 user = session.execute(
@@ -84,7 +114,7 @@ class StaffSessionService:
                     .with_for_update(of=AppUser)
                 ).one_or_none()
                 if user is None:
-                    denial = True
+                    outcome = "denied"
                     self._audit_writer.append(
                         session,
                         event_type="staff.login_denied",
@@ -99,83 +129,202 @@ class StaffSessionService:
                     if (
                         not account.is_active
                         or account.password_hash != snapshot.password_hash
-                        or role_name != "support_agent"
+                        or role_name not in STAFF_PORTAL_ROLES
                         or not eligible
                     ):
-                        denial = True
-                        self._audit_writer.append(
-                            session,
-                            event_type="staff.login_denied",
-                            actor_id=str(account.id),
-                            result="denied",
-                            correlation_id=correlation_id,
-                            context={"reason": "ineligible"},
+                        outcome = "denied"
+                        self._write_login_denied(session, account.id, "ineligible", correlation_id)
+                    elif self._has_active_staff_session(session, account.id, now):
+                        outcome = "conflict"
+                        self._write_login_denied(
+                            session, account.id, "session_exists", correlation_id
                         )
-                    else:
-                        active_ids = list(
-                            session.scalars(
-                                select(UserSession.id)
-                                .where(
-                                    UserSession.user_id == account.id,
-                                    UserSession.platform == "staff_browser",
-                                    UserSession.revoked_at.is_(None),
-                                    UserSession.idle_expires_at > now,
-                                    UserSession.absolute_expires_at > now,
-                                )
-                                .with_for_update()
-                            )
-                        )
-                        if active_ids:
-                            conflict = True
-                            self._audit_writer.append(
-                                session,
-                                event_type="staff.login_denied",
-                                actor_id=str(account.id),
-                                result="denied",
-                                correlation_id=correlation_id,
-                                context={"reason": "session_exists"},
+                    elif role_name in MFA_REQUIRED_ROLES:
+                        if self._mfa is None:
+                            outcome = "mfa_unavailable"
+                            self._write_login_denied(
+                                session, account.id, "mfa_unavailable", correlation_id
                             )
                         else:
-                            browser_session = UserSession(
-                                user_id=account.id,
-                                platform="staff_browser",
-                                access_token_hash=access.token_hash,
-                                access_expires_at=access_expires,
-                                idle_expires_at=idle_expires,
-                                absolute_expires_at=absolute_expires,
-                                last_renewed_at=now,
-                            )
-                            session.add(browser_session)
-                            session.flush()
-                            session.add(
-                                RenewableCredential(
-                                    session_id=browser_session.id,
-                                    token_hash=refresh.token_hash,
-                                    issued_at=now,
-                                    expires_at=idle_expires,
-                                )
-                            )
-                            self._audit_writer.append(
-                                session,
-                                event_type="staff.login",
-                                actor_id=str(account.id),
-                                result="success",
-                                correlation_id=correlation_id,
-                                context={},
-                            )
-                            view = StaffSessionUser(
-                                id=account.id, email=account.email, role=role_name
-                            )
+                            result = self._issue_mfa_challenge(session, account.id, challenge, now)
+                    else:
+                        self._create_browser_session(
+                            session,
+                            account.id,
+                            access,
+                            refresh,
+                            (access_expires, idle_expires, absolute_expires),
+                            now=now,
+                            mfa_verified_at=None,
+                        )
+                        self._audit_writer.append(
+                            session,
+                            event_type="staff.login",
+                            actor_id=str(account.id),
+                            result="success",
+                            correlation_id=correlation_id,
+                            context={},
+                        )
+                        result = (
+                            StaffSessionUser(id=account.id, email=account.email, role=role_name),
+                            access.raw,
+                            refresh.raw,
+                            access_expires,
+                            idle_expires,
+                            absolute_expires,
+                        )
         except Exception as exc:
-            if isinstance(exc, (StaffLoginInvalidError, StaffSessionExistsError)):
-                raise
             raise AuditUnavailableError() from exc
 
-        if conflict:
+        if outcome == "conflict":
             raise StaffSessionExistsError()
-        if denial:
+        if outcome == "mfa_unavailable":
+            raise MfaUnavailableError()
+        if outcome == "denied" or result is None:
             raise StaffLoginInvalidError()
-        return view, access.raw, refresh.raw, access_expires, idle_expires, absolute_expires
+        return result
+
+    def start_mfa_enrollment(
+        self, raw_challenge: str | None, *, correlation_id: str
+    ) -> StaffMfaEnrollment:
+        """Create a pending authenticator inside a valid challenge; active only after a code."""
+        policy = self._require_mfa()
+        token_hash = self._credential_codec.try_hash_presented(raw_challenge or "")
+        if token_hash is None:
+            raise MfaChallengeInvalidError()
+        now = self._clock.now()
+        secret = policy.verifier.new_secret()
+        outcome: str | None = None
+        account_name = ""
+        try:
+            with self._session_factory() as session, session.begin():
+                challenge = self._lock_open_challenge(session, token_hash, now)
+                account = None if challenge is None else self._lock_mfa_account(session, challenge)
+                if challenge is None:
+                    outcome = "challenge_invalid"
+                elif account is None:
+                    challenge.consumed_at = now
+                    self._write_login_denied(
+                        session, challenge.user_id, "ineligible", correlation_id
+                    )
+                    outcome = "ineligible"
+                elif self._factor(session, account.id, "active") is not None:
+                    outcome = "already_enrolled"
+                else:
+                    session.execute(
+                        update(AdminTotpFactor)
+                        .where(
+                            AdminTotpFactor.admin_user_id == account.id,
+                            AdminTotpFactor.state == "pending",
+                        )
+                        .values(state="disabled")
+                    )
+                    session.add(
+                        AdminTotpFactor(
+                            admin_user_id=account.id,
+                            secret_ciphertext=policy.cipher.encrypt(secret, user_id=account.id),
+                            state="pending",
+                            created_at=now,
+                        )
+                    )
+                    account_name = account.email
+        except Exception as exc:
+            raise AuditUnavailableError() from exc
+
+        if outcome == "challenge_invalid":
+            raise MfaChallengeInvalidError()
+        if outcome == "ineligible":
+            raise StaffAccessDeniedError()
+        if outcome == "already_enrolled":
+            raise MfaAlreadyEnrolledError()
+        uri = provisioning_uri(secret=secret, account_name=account_name, issuer=policy.issuer)
+        return StaffMfaEnrollment(
+            issuer=policy.issuer,
+            account_name=account_name,
+            secret=secret,
+            otpauth_uri=uri,
+            qr_svg_data_url=qr_svg_data_url(uri),
+        )
+
+    def verify_mfa(
+        self, raw_challenge: str | None, code: str, *, correlation_id: str
+    ) -> StaffSessionIssue:
+        """Complete password+TOTP sign-in and issue an MFA-verified staff session."""
+        policy = self._require_mfa()
+        token_hash = self._credential_codec.try_hash_presented(raw_challenge or "")
+        if token_hash is None:
+            raise MfaChallengeInvalidError()
+        now = self._clock.now()
+        access = self._credential_codec.issue()
+        refresh = self._credential_codec.issue()
+        expiries = _initial_expiries(now)
+        outcome: str | None = None
+        result: StaffSessionIssue | None = None
+        try:
+            with self._session_factory() as session, session.begin():
+                challenge = self._lock_open_challenge(session, token_hash, now)
+                account = None if challenge is None else self._lock_mfa_account(session, challenge)
+                if challenge is None:
+                    outcome = "challenge_invalid"
+                elif account is None:
+                    challenge.consumed_at = now
+                    self._write_login_denied(
+                        session, challenge.user_id, "ineligible", correlation_id
+                    )
+                    outcome = "ineligible"
+                elif self._has_active_staff_session(session, account.id, now):
+                    challenge.consumed_at = now
+                    self._write_login_denied(session, account.id, "session_exists", correlation_id)
+                    outcome = "conflict"
+                else:
+                    factor = self._factor(session, account.id, "active") or self._factor(
+                        session, account.id, "pending"
+                    )
+                    if factor is None:
+                        outcome = "enrollment_required"
+                    else:
+                        outcome, result = self._check_code(
+                            session,
+                            policy,
+                            challenge=challenge,
+                            account=account,
+                            factor=factor,
+                            code=code,
+                            access=access,
+                            refresh=refresh,
+                            expiries=expiries,
+                            now=now,
+                            correlation_id=correlation_id,
+                        )
+        except Exception as exc:
+            raise AuditUnavailableError() from exc
+
+        if outcome == "challenge_invalid" or outcome == "exhausted":
+            raise MfaChallengeInvalidError()
+        if outcome == "ineligible":
+            raise StaffAccessDeniedError()
+        if outcome == "conflict":
+            raise StaffSessionExistsError()
+        if outcome == "enrollment_required":
+            raise MfaEnrollmentRequiredError()
+        if outcome == "unavailable":
+            raise MfaUnavailableError()
+        if outcome == "code_invalid" or result is None:
+            raise MfaCodeInvalidError()
+        return result
+
+    def cancel_mfa(self, raw_challenge: str | None) -> None:
+        token_hash = self._credential_codec.try_hash_presented(raw_challenge or "")
+        if token_hash is None:
+            return
+        now = self._clock.now()
+        try:
+            with self._session_factory() as session, session.begin():
+                challenge = self._lock_open_challenge(session, token_hash, now)
+                if challenge is not None:
+                    challenge.consumed_at = now
+        except Exception as exc:
+            raise AuditUnavailableError() from exc
 
     def resolve(
         self, raw_access: str | None, *, correlation_id: str = "unavailable"
@@ -229,11 +378,7 @@ class StaffSessionService:
                 raise StaffSessionExpiredError()
             if idle_expires_at <= now or absolute_expires_at <= now:
                 raise StaffSessionInvalidError()
-            if (
-                not account.is_active
-                or role_name != "support_agent"
-                or not self._activation_is_authoritative(session, account)
-            ):
+            if not self._has_portal_authority(session, account, role_name, auth_session):
                 denied = True
                 auth_session.revoked_at = now
                 auth_session.revocation_reason = "authority_changed"
@@ -259,9 +404,7 @@ class StaffSessionService:
             raise StaffSessionInvalidError()
         return projection
 
-    def refresh(
-        self, raw_refresh: str | None, *, correlation_id: str
-    ) -> tuple[StaffSessionUser, str, str, datetime, datetime, datetime]:
+    def refresh(self, raw_refresh: str | None, *, correlation_id: str) -> StaffSessionIssue:
         token_hash = self._credential_codec.try_hash_presented(raw_refresh or "")
         if token_hash is None:
             raise StaffSessionInvalidError()
@@ -270,7 +413,7 @@ class StaffSessionService:
         replacement = self._credential_codec.issue()
         denial = False
         replay_event: tuple[str, str] | None = None
-        result: tuple[StaffSessionUser, str, str, datetime, datetime, datetime] | None = None
+        result: StaffSessionIssue | None = None
         try:
             with self._session_factory() as session, session.begin():
                 credential = session.execute(
@@ -304,11 +447,7 @@ class StaffSessionService:
                     or _utc(auth_session.absolute_expires_at) <= now
                 ):
                     denial = True
-                elif (
-                    not account.is_active
-                    or role_name != "support_agent"
-                    or not self._activation_is_authoritative(session, account)
-                ):
+                elif not self._has_portal_authority(session, account, role_name, auth_session):
                     denial = True
                     auth_session.revoked_at = now
                     auth_session.revocation_reason = "authority_changed"
@@ -323,8 +462,8 @@ class StaffSessionService:
                     )
                 else:
                     absolute_expires = _utc(auth_session.absolute_expires_at)
-                    idle_expires = min(now + timedelta(minutes=30), absolute_expires)
-                    access_expires = min(now + timedelta(minutes=15), idle_expires)
+                    idle_expires = min(now + _IDLE_LIFETIME, absolute_expires)
+                    access_expires = min(now + _ACCESS_LIFETIME, idle_expires)
                     credential.consumed_at = now
                     auth_session.access_token_hash = access.token_hash
                     auth_session.access_expires_at = access_expires
@@ -432,6 +571,239 @@ class StaffSessionService:
         except Exception as exc:
             raise AuditUnavailableError() from exc
 
+    def _check_code(
+        self,
+        session: Session,
+        policy: StaffMfaPolicy,
+        *,
+        challenge: StaffMfaChallenge,
+        account: AppUser,
+        factor: AdminTotpFactor,
+        code: str,
+        access: IssuedCredential,
+        refresh: IssuedCredential,
+        expiries: tuple[datetime, datetime, datetime],
+        now: datetime,
+        correlation_id: str,
+    ) -> tuple[str, StaffSessionIssue | None]:
+        try:
+            secret = policy.cipher.decrypt(factor.secret_ciphertext, user_id=account.id)
+        except ValueError:
+            return "unavailable", None
+        step = policy.verifier.matching_step(secret, code, now=now)
+        replayed = (
+            step is not None
+            and factor.last_accepted_time_step is not None
+            and step <= factor.last_accepted_time_step
+        )
+        if step is None or replayed:
+            challenge.failed_attempts += 1
+            exhausted = challenge.failed_attempts >= policy.max_attempts
+            if exhausted:
+                challenge.consumed_at = now
+            self._audit_writer.append(
+                session,
+                event_type="auth.mfa_failed",
+                actor_id=str(account.id),
+                target_id=str(account.id),
+                target_type="account",
+                result="failure",
+                correlation_id=correlation_id,
+                context={"reason": "replayed_code" if replayed else "invalid_code"},
+            )
+            return ("exhausted" if exhausted else "code_invalid"), None
+
+        factor.last_accepted_time_step = step
+        if factor.state == "pending":
+            factor.state = "active"
+            factor.activated_at = now
+            self._audit_writer.append(
+                session,
+                event_type="auth.mfa_enrolled",
+                actor_id=str(account.id),
+                target_id=str(account.id),
+                target_type="account",
+                result="success",
+                correlation_id=correlation_id,
+                context={},
+            )
+        challenge.consumed_at = now
+        self._audit_writer.append(
+            session,
+            event_type="auth.mfa_success",
+            actor_id=str(account.id),
+            target_id=str(account.id),
+            target_type="account",
+            result="success",
+            correlation_id=correlation_id,
+            context={},
+        )
+        session_id = self._create_browser_session(
+            session, account.id, access, refresh, expiries, now=now, mfa_verified_at=now
+        )
+        # SEC-02: for privileged roles a completed login means password plus MFA.
+        self._audit_writer.append(
+            session,
+            event_type="auth.login_success",
+            actor_id=str(account.id),
+            target_id=str(session_id),
+            target_type="staff_session",
+            result="success",
+            correlation_id=correlation_id,
+            context={},
+        )
+        access_expires, idle_expires, absolute_expires = expiries
+        role_name = session.scalar(select(Role.name).where(Role.id == account.role_id))
+        return "verified", (
+            StaffSessionUser(id=account.id, email=account.email, role=str(role_name)),
+            access.raw,
+            refresh.raw,
+            access_expires,
+            idle_expires,
+            absolute_expires,
+        )
+
+    def _require_mfa(self) -> StaffMfaPolicy:
+        if self._mfa is None:
+            raise MfaUnavailableError()
+        return self._mfa
+
+    def _issue_mfa_challenge(
+        self, session: Session, user_id: int, challenge: IssuedCredential, now: datetime
+    ) -> StaffMfaChallengeIssued:
+        policy = self._require_mfa()
+        session.execute(
+            update(StaffMfaChallenge)
+            .where(StaffMfaChallenge.user_id == user_id, StaffMfaChallenge.consumed_at.is_(None))
+            .values(consumed_at=now)
+        )
+        expires_at = now + timedelta(minutes=policy.challenge_minutes)
+        session.add(
+            StaffMfaChallenge(
+                user_id=user_id,
+                token_hash=challenge.token_hash,
+                created_at=now,
+                expires_at=expires_at,
+                failed_attempts=0,
+            )
+        )
+        return StaffMfaChallengeIssued(
+            raw_challenge=challenge.raw,
+            expires_at=expires_at,
+            enrollment_required=self._factor(session, user_id, "active") is None,
+        )
+
+    @staticmethod
+    def _lock_open_challenge(
+        session: Session, token_hash: str, now: datetime
+    ) -> StaffMfaChallenge | None:
+        challenge = session.execute(
+            select(StaffMfaChallenge)
+            .where(StaffMfaChallenge.token_hash == token_hash)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if (
+            challenge is None
+            or challenge.consumed_at is not None
+            or _utc(challenge.expires_at) <= now
+        ):
+            return None
+        return challenge
+
+    def _lock_mfa_account(self, session: Session, challenge: StaffMfaChallenge) -> AppUser | None:
+        row = session.execute(
+            select(AppUser, Role.name)
+            .join(Role, Role.id == AppUser.role_id)
+            .where(AppUser.id == challenge.user_id)
+            .with_for_update(of=AppUser)
+        ).one_or_none()
+        if row is None:
+            return None
+        account: AppUser = row[0]
+        role_name: str = row[1]
+        if (
+            not account.is_active
+            or role_name not in MFA_REQUIRED_ROLES
+            or not self._activation_is_authoritative(session, account)
+        ):
+            return None
+        return account
+
+    @staticmethod
+    def _factor(session: Session, user_id: int, state: str) -> AdminTotpFactor | None:
+        # The factor's joined account relationship is not needed and must not wrap the
+        # LIMIT query in a subquery that FOR UPDATE could not lock.
+        return session.execute(
+            select(AdminTotpFactor)
+            .options(lazyload(AdminTotpFactor.admin))
+            .where(AdminTotpFactor.admin_user_id == user_id, AdminTotpFactor.state == state)
+            .order_by(AdminTotpFactor.created_at.desc(), AdminTotpFactor.id.desc())
+            .limit(1)
+            .with_for_update(of=AdminTotpFactor)
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def _has_active_staff_session(session: Session, user_id: int, now: datetime) -> bool:
+        active_ids = list(
+            session.scalars(
+                select(UserSession.id)
+                .where(
+                    UserSession.user_id == user_id,
+                    UserSession.platform == "staff_browser",
+                    UserSession.revoked_at.is_(None),
+                    UserSession.idle_expires_at > now,
+                    UserSession.absolute_expires_at > now,
+                )
+                .with_for_update()
+            )
+        )
+        return bool(active_ids)
+
+    @staticmethod
+    def _create_browser_session(
+        session: Session,
+        user_id: int,
+        access: IssuedCredential,
+        refresh: IssuedCredential,
+        expiries: tuple[datetime, datetime, datetime],
+        *,
+        now: datetime,
+        mfa_verified_at: datetime | None,
+    ) -> int:
+        access_expires, idle_expires, absolute_expires = expiries
+        browser_session = UserSession(
+            user_id=user_id,
+            platform="staff_browser",
+            access_token_hash=access.token_hash,
+            access_expires_at=access_expires,
+            idle_expires_at=idle_expires,
+            absolute_expires_at=absolute_expires,
+            last_renewed_at=now,
+            mfa_verified_at=mfa_verified_at,
+        )
+        session.add(browser_session)
+        session.flush()
+        session.add(
+            RenewableCredential(
+                session_id=browser_session.id,
+                token_hash=refresh.token_hash,
+                issued_at=now,
+                expires_at=idle_expires,
+            )
+        )
+        return browser_session.id
+
+    def _has_portal_authority(
+        self, session: Session, account: AppUser, role_name: str, auth_session: UserSession
+    ) -> bool:
+        """Current active account, portal role, MFA assurance and authoritative activation."""
+        if not account.is_active or role_name not in STAFF_PORTAL_ROLES:
+            return False
+        # A session issued before a privileged role was assigned never gains MFA assurance.
+        if role_name in MFA_REQUIRED_ROLES and auth_session.mfa_verified_at is None:
+            return False
+        return self._activation_is_authoritative(session, account)
+
     @staticmethod
     def _activation_is_authoritative(session: Session, user: AppUser) -> bool:
         return bool(
@@ -443,10 +815,22 @@ class StaffSessionService:
                     StaffInvitation.consumed_at.is_not(None),
                     StaffInvitation.email == user.email,
                     StaffInvitation.role_id == user.role_id,
-                    Role.name == "support_agent",
+                    Role.name.in_(STAFF_PORTAL_ROLES),
                 )
                 .limit(1)
             )
+        )
+
+    def _write_login_denied(
+        self, session: Session, user_id: int, reason: str, correlation_id: str
+    ) -> None:
+        self._audit_writer.append(
+            session,
+            event_type="staff.login_denied",
+            actor_id=str(user_id),
+            result="denied",
+            correlation_id=correlation_id,
+            context={"reason": reason},
         )
 
     def _write_denied_login(self, *, correlation_id: str) -> None:
@@ -462,6 +846,17 @@ class StaffSessionService:
                 )
         except Exception as exc:
             raise AuditUnavailableError() from exc
+
+
+def _initial_expiries(now: datetime) -> tuple[datetime, datetime, datetime]:
+    access_expires = now + _ACCESS_LIFETIME
+    idle_expires = now + _IDLE_LIFETIME
+    absolute_expires = now + _ABSOLUTE_LIFETIME
+    if idle_expires > absolute_expires:
+        idle_expires = absolute_expires
+    if access_expires > idle_expires:
+        access_expires = idle_expires
+    return access_expires, idle_expires, absolute_expires
 
 
 def _utc(value: datetime) -> datetime:
