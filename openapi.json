@@ -374,6 +374,16 @@
       "AgentTicketCreate": {
         "additionalProperties": false,
         "properties": {
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "category": {
             "enum": [
               "general",
@@ -410,6 +420,77 @@
           "customer_identifier"
         ],
         "title": "AgentTicketCreate",
+        "type": "object"
+      },
+      "AttachmentDownload": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "AttachmentDownload",
+        "type": "object"
+      },
+      "AttachmentInput": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 2796204,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "content"
+        ],
+        "title": "AttachmentInput",
+        "type": "object"
+      },
+      "AttachmentSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "name",
+          "size"
+        ],
+        "title": "AttachmentSummary",
         "type": "object"
       },
       "AuditCatalogView": {
@@ -2260,6 +2341,14 @@
       },
       "CustomerConversation": {
         "properties": {
+          "attachments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummary"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/TicketMessage"
@@ -3865,6 +3954,16 @@
       "MessageCreate": {
         "additionalProperties": false,
         "properties": {
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "body": {
             "maxLength": 4000,
             "minLength": 1,
@@ -4848,6 +4947,14 @@
       },
       "StaffConversation": {
         "properties": {
+          "attachments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummary"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
           "customer": {
             "$ref": "#/components/schemas/CustomerMetadata"
           },
@@ -5703,6 +5810,16 @@
       "TicketCreate": {
         "additionalProperties": false,
         "properties": {
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "category": {
             "enum": [
               "general",
@@ -14826,6 +14943,61 @@
         ]
       }
     },
+    "/api/v1/staff/support/tickets/{ticket_id}/attachments/{attachment_id}": {
+      "get": {
+        "operationId": "download_attachment_api_v1_staff_support_tickets__ticket_id__attachments__attachment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Attachment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentDownload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Attachment",
+        "tags": [
+          "Staff support tickets"
+        ]
+      }
+    },
     "/api/v1/staff/support/tickets/{ticket_id}/claim": {
       "post": {
         "operationId": "claim_ticket_api_v1_staff_support_tickets__ticket_id__claim_post",
@@ -15169,6 +15341,66 @@
           }
         ],
         "summary": "Read Ticket",
+        "tags": [
+          "Customer support tickets"
+        ]
+      }
+    },
+    "/api/v1/support/tickets/{ticket_id}/attachments/{attachment_id}": {
+      "get": {
+        "operationId": "download_attachment_api_v1_support_tickets__ticket_id__attachments__attachment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Attachment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentDownload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Download Attachment",
         "tags": [
           "Customer support tickets"
         ]

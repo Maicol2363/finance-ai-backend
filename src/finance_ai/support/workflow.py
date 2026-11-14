@@ -1,16 +1,26 @@
 """Support application unit of work: authorization, mutation and audit commit together."""
 
+from base64 import b64encode
 from datetime import UTC, datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from finance_ai.audit.service import SecurityAuditWriter
-from finance_ai.core.errors import SupportTicketStateConflictError
-from finance_ai.db.models.support import SupportTicket, SupportTicketActivity, SupportTicketMessage
+from finance_ai.core.errors import SupportTicketNotFoundError, SupportTicketStateConflictError
+from finance_ai.db.models.support import (
+    SupportAttachment,
+    SupportTicket,
+    SupportTicketActivity,
+    SupportTicketMessage,
+)
+from finance_ai.support.attachments import decode_attachment
 from finance_ai.support.repository import SupportRepository
 from finance_ai.support.schemas import (
     AgentTicketCreate,
+    AttachmentDownload,
+    AttachmentInput,
+    AttachmentSummary,
     CustomerConversation,
     CustomerMetadata,
     CustomerTicket,
@@ -73,6 +83,37 @@ class TicketWorkflow:
             )
             return customer
 
+    @staticmethod
+    def _attach(
+        session: Session, ticket_id: int, file: AttachmentInput, message_id: int | None = None
+    ) -> None:
+        content = decode_attachment(file)
+        session.add(
+            SupportAttachment(
+                ticket_id=ticket_id,
+                message_id=message_id,
+                name=file.name,
+                size=len(content),
+                content=content,
+            )
+        )
+
+    def download(
+        self, actor: int, ticket_id: int, attachment_id: int, *, staff: bool
+    ) -> AttachmentDownload:
+        with self.factory.begin() as session:
+            repo = SupportRepository(session)
+            repo.require_role(actor, "support_agent" if staff else "user")
+            repo.ticket(ticket_id, actor, staff=staff)
+            content = session.scalar(
+                select(SupportAttachment.content).where(
+                    SupportAttachment.ticket_id == ticket_id, SupportAttachment.id == attachment_id
+                )
+            )
+            if content is None:
+                raise SupportTicketNotFoundError()
+            return AttachmentDownload(content=b64encode(content).decode("ascii"))
+
     def create(
         self, actor: int, data: TicketCreate, correlation: str, *, staff: bool
     ) -> CustomerTicket:
@@ -93,6 +134,8 @@ class TicketWorkflow:
             )
             session.add(ticket)
             session.flush()
+            if data.attachment is not None:
+                self._attach(session, ticket.id, data.attachment)
             self._event(session, ticket.id, actor, "ticket_created", correlation, status="open")
             # Return a creation receipt without granting conversation access.
             return CustomerTicket(
@@ -125,17 +168,32 @@ class TicketWorkflow:
             repo.require_role(actor, "support_agent" if staff else "user")
             ticket = repo.ticket(ticket_id, actor, staff=staff)
             messages = repo.messages(ticket_id)
+            files = SupportAttachment.__table__
+            rows = session.execute(
+                select(*(files.c[name] for name in AttachmentSummary.model_fields))
+                .where(files.c.ticket_id == ticket_id)
+                .order_by(files.c.id)
+            ).mappings()
+            attachments = [AttachmentSummary.model_validate(row) for row in rows]
             if staff:
                 return StaffConversation(
                     ticket=ticket,
                     messages=messages,
+                    attachments=attachments,
                     customer=repo.customer(str(repo.customer_id(ticket_id))),
                     history=repo.history(ticket_id),
                 )
-            return CustomerConversation(ticket=ticket, messages=messages)
+            return CustomerConversation(ticket=ticket, messages=messages, attachments=attachments)
 
     def message(
-        self, actor: int, ticket_id: int, body: str, correlation: str, *, staff: bool
+        self,
+        actor: int,
+        ticket_id: int,
+        body: str,
+        correlation: str,
+        *,
+        staff: bool,
+        attachment: AttachmentInput | None = None,
     ) -> None:
         with self.factory.begin() as session:
             repo = SupportRepository(session)
@@ -144,14 +202,13 @@ class TicketWorkflow:
             allowed = ("in_progress",) if staff else ("open", "in_progress")
             if ticket.status not in allowed or (staff and ticket.assigned_staff_user_id != actor):
                 raise SupportTicketStateConflictError()
-            session.add(
-                SupportTicketMessage(
-                    ticket_id=ticket_id,
-                    author_user_id=actor,
-                    body=body,
-                    created_at=datetime.now(UTC),
-                )
+            message = SupportTicketMessage(
+                ticket_id=ticket_id, author_user_id=actor, body=body, created_at=datetime.now(UTC)
             )
+            session.add(message)
+            if attachment is not None:
+                session.flush()
+                self._attach(session, ticket_id, attachment, message.id)
             self._event(session, ticket_id, actor, "message_sent", correlation)
 
     def transition(

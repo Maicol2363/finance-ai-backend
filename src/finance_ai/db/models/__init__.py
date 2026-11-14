@@ -22,7 +22,12 @@ from finance_ai.db.models.income import Income
 from finance_ai.db.models.receipts import Expense, Receipt
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
-from finance_ai.db.models.support import SupportTicket, SupportTicketActivity, SupportTicketMessage
+from finance_ai.db.models.support import (
+    SupportAttachment,
+    SupportTicket,
+    SupportTicketActivity,
+    SupportTicketMessage,
+)
 from finance_ai.db.models.transactions import AccountMovement, FinancialTransaction
 from finance_ai.receipts.models import ReceiptProposalModel
 
@@ -52,6 +57,7 @@ __all__ = [
     "StaffMfaRecoveryCode",
     "Store",
     "Subcategory",
+    "SupportAttachment",
     "SupportTicket",
     "SupportTicketActivity",
     "SupportTicketMessage",
