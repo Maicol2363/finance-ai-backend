@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     environment: Literal["local", "test", "production"] = "local"
     database_url: str = "postgresql+psycopg://finance_ai:change-me-local@localhost:5432/finance_ai"
+    cors_allowed_origins: list[str] = Field(default_factory=list)
+    staff_local_cookie_exception_enabled: bool = False
     log_level: str = "INFO"
     max_request_body_bytes: int = Field(default=16 * 1024, ge=1024, le=1024 * 1024)
     registration_per_minute: int = Field(default=10, ge=1, le=10_000)
@@ -51,6 +53,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_disposable_defaults_outside_local(self) -> Settings:
+        if "*" in self.cors_allowed_origins:
+            raise ValueError("CORS origins must be explicitly listed")
         if self.environment == "production" and "change-me-local" in self.database_url:
             raise ValueError("Disposable local database credentials cannot be used in production")
         if self.environment == "production" and self.session_limiter_secret.startswith("change-me"):

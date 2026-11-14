@@ -15,11 +15,23 @@ From this directory:
 - Format check: `uv run ruff format --check .`
 - Types: `uv run mypy src`
 
-Start the standalone API and private PostgreSQL database with `docker compose up --build -d`. Run `docker compose --profile test run --rm test pytest -m integration` for real PostgreSQL integration tests. Never commit a real `.env`.
+On Linux, copy the safe example with `cp .env.example .env`; in Windows PowerShell, use `Copy-Item .env.example .env`. Then install the pinned environment with `uv sync --all-groups --frozen`. Start the API and private PostgreSQL database with `docker compose up --build -d`; the API container applies migrations and seeds at startup. To run FastAPI from the host, start the API in Compose or expose PostgreSQL only through the loopback-only DBeaver override. Never commit a real `.env`.
+
+Run PostgreSQL integration and regression tests in the isolated Compose test database with `docker compose --profile test run --rm test`. The test suite refuses database names not ending in `_test`. To change dependencies, use `uv add package@version`, review `pyproject.toml` and `uv.lock`, then verify with `uv sync --all-groups --frozen` and `uv run pip-audit`.
 
 Project documentation and cross-repository orchestration live in `NullCorvus/finance-ai`. The Android/Windows client lives in `Maicol2363/finance-ai-frontend`. This repository owns the generated `openapi.json` contract.
 
 The public identity endpoints are `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `GET /api/v1/auth/me`, and `POST /api/v1/auth/logout`. Access credentials expire after 15 minutes; renewable credentials rotate, are bounded by 30-day idle and 90-day absolute lifetimes, and are never persisted in plaintext. The default maximum is ten active sessions per user.
+
+## Staff foundation
+
+Migration `0018_staff_foundation` adds the approved `support_agent` and `security_auditor` role records, staff invitations, Administrator TOTP persistence, MFA assurance timestamp, ticket/message/activity tables, and append-only security audit events. It preserves the existing `user` and `admin` roles and does not create accounts or alter existing financial data. Support, Administrator, MFA and Auditor workflows are not implemented by this schema foundation; follow the authoritative stories before adding services or routes. Security Auditor query/report decisions remain provisional until the role stories are finalized.
+
+The React staff portal is in the separate `Maicol2363/finance-ai-frontend` repository under `staff-web/`. Its Vite origin is `http://127.0.0.1:5173`; `FINANCE_AI_CORS_ALLOWED_ORIGINS` in this repository's `.env` lists explicit local origins. Browser credentialed CORS is disabled. The current opaque bearer-session endpoints do not define a browser session contract, so sign-in and protected actions remain disabled in the staff portal. The Flutter client and API authentication contract are unchanged.
+
+The schema mapping and limitations are recorded in `aidlc-docs/inception/requirements/foundation-schema-mapping.md`. Apply migrations and run database tests only against an isolated database ending in `_test`; never point this feature branch at production or shared Neon.
+
+The locked TOTP, authenticated-encryption, QR-generation and PDF libraries prepare for later story implementations. No OTP, encryption, QR enrollment or PDF workflow is implemented in this foundation.
 
 ## Financial accounts (HU-003)
 

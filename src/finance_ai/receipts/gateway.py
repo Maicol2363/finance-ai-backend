@@ -134,12 +134,34 @@ def check_json_depth(obj: Any, current_depth: int = 1, max_depth: int = MAX_JSON
             check_json_depth(item, current_depth + 1, max_depth)
 
 
+_ITEMS_OPEN_REGEX = re.compile(r'"items"\s*:\s*\[')
+_TRUNCATED_TAIL_REGEX = re.compile(r"\s*,\s*\{")
+
+
+def _last_complete_item_end(text: str) -> int | None:
+    """Returns the index just after the last closed item of a truncated ``items`` list.
+
+    The text must end with an unclosed ``{...`` item that is preceded by a comma.
+    Linear-time alternative to a lazy ``.*?`` regex, which backtracks super-linearly.
+    """
+    items_open = _ITEMS_OPEN_REGEX.search(text)
+    if items_open is None:
+        return None
+    last_close = text.rfind("}")
+    if last_close < items_open.end():
+        return None
+    if _TRUNCATED_TAIL_REGEX.match(text, last_close + 1) is None:
+        return None
+    return last_close + 1
+
+
 def try_repair_json(text: str) -> dict[str, Any]:
     """Attempts to repair slightly truncated or unclosed JSON from vision models."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
         cleaned = cleaned.strip()
 
     try:
@@ -149,9 +171,9 @@ def try_repair_json(text: str) -> dict[str, Any]:
 
     # If truncated inside items list, truncate to last valid closed item '}'
     if '"items":' in cleaned:
-        match = re.search(r'("items"\s*:\s*\[.*?\})\s*,\s*\{[^}]*$', cleaned, re.DOTALL)
-        if match:
-            candidate = cleaned[: match.end(1)] + "]}"
+        items_end = _last_complete_item_end(cleaned)
+        if items_end is not None:
+            candidate = cleaned[:items_end] + "]}"
             try:
                 return _require_json_object(json.loads(candidate))
             except json.JSONDecodeError, ValueError:
