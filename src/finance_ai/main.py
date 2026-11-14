@@ -24,7 +24,11 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_request_body_bytes)
     # Starlette places the most recently added user middleware on the outside.
     # Keep CORS outside the request guard so its early error responses get CORS headers.
-    app.add_middleware(
+    # StaffNoStoreMiddleware is intentionally added after CORS: staff preflight responses
+    # must carry Cache-Control: no-store and X-Correlation-ID (see
+    # test_staff_preflight_is_exact_origin_and_never_allows_credentials). It only adds
+    # headers and never produces responses, so every response still gets CORS headers.
+    app.add_middleware(  # NOSONAR S8414
         CORSMiddleware,
         allow_origins=settings.cors_allowed_origins,
         allow_credentials=False,

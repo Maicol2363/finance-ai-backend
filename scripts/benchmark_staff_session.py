@@ -145,7 +145,7 @@ def _seed_baseline_accounts(count: int, base_url: str) -> list[tuple[str, str]]:
             email = f"staff-benchmark-baseline-{index}-{secrets.token_hex(8)}@example.invalid"
             user = AppUser(
                 email=email,
-                password_hash="not-used-for-session-read-benchmark",
+                password_hash=secrets.token_hex(32),
                 role_id=role.id,
                 preferred_currency_id=currency.id,
             )
@@ -177,7 +177,8 @@ async def _run_load(
 ) -> dict[str, object]:
     import httpx
 
-    origin = f"http://{urlsplit(base_url).hostname}:5173"
+    parsed_base_url = urlsplit(base_url)
+    origin = f"{parsed_base_url.scheme}://{parsed_base_url.hostname}:5173"
     limits = httpx.Limits(max_connections=20, max_keepalive_connections=20)
     timeout = httpx.Timeout(10.0, connect=3.0)
     clients = [
