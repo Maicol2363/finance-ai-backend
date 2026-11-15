@@ -216,6 +216,58 @@ def test_postgres_concurrent_verification_accepts_a_code_only_once() -> None:
         assert len(list(session.scalars(select(UserSession.id)))) == 1
 
 
+def test_postgres_concurrent_login_and_verification_use_one_lock_order() -> None:
+    people = create_people()
+    service = staff_service(mfa_policy())
+    challenge = login(service, people["auditor"][1])
+    enrollment = service.start_mfa_enrollment(challenge.raw_challenge, correlation_id="pg")
+    code = pyotp.TOTP(enrollment.secret).now()
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def record(operation: str) -> None:
+        barrier.wait(timeout=5)
+        try:
+            if operation == "login":
+                outcome = login(service, people["auditor"][1])
+                result = (
+                    "login_challenge"
+                    if isinstance(outcome, StaffMfaChallengeIssued)
+                    else "login_unexpected"
+                )
+            else:
+                service.verify_mfa(challenge.raw_challenge, code, correlation_id="race")
+                result = "verify_success"
+        except StaffSessionExistsError:
+            result = "login_session_exists"
+        except MfaChallengeInvalidError:
+            result = "verify_invalid"
+        except (
+            Exception
+        ) as exc:  # Preserve unexpected failures so database deadlocks fail this assertion.
+            result = f"unexpected_{type(exc).__name__}"
+        with lock:
+            outcomes.append(result)
+
+    threads = [
+        threading.Thread(target=record, args=("login",), daemon=True),
+        threading.Thread(target=record, args=("verify",), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+
+    assert all(not thread.is_alive() for thread in threads), (
+        "Concurrent MFA operations did not finish."
+    )
+    assert sorted(outcomes) in (
+        ["login_challenge", "verify_invalid"],
+        ["login_session_exists", "verify_success"],
+    )
+
+
 def test_postgres_suspension_denies_existing_auditor_session_immediately() -> None:
     people = create_people()
     service = staff_service(mfa_policy())

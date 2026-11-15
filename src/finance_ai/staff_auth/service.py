@@ -198,9 +198,15 @@ class StaffSessionService:
         account_name = ""
         try:
             with self._session_factory() as session, session.begin():
+                # MFA flows that touch both rows always lock AppUser before StaffMfaChallenge.
+                challenge_user_id = self._mfa_challenge_user_id(session, token_hash)
+                account = (
+                    None
+                    if challenge_user_id is None
+                    else self._lock_mfa_account(session, challenge_user_id)
+                )
                 challenge = self._lock_open_challenge(session, token_hash, now)
-                account = None if challenge is None else self._lock_mfa_account(session, challenge)
-                if challenge is None:
+                if challenge is None or challenge.user_id != challenge_user_id:
                     outcome = "challenge_invalid"
                 elif account is None:
                     challenge.consumed_at = now
@@ -262,9 +268,15 @@ class StaffSessionService:
         result: StaffSessionIssue | None = None
         try:
             with self._session_factory() as session, session.begin():
+                # Match login()'s account-before-challenge order to avoid a row-lock cycle.
+                challenge_user_id = self._mfa_challenge_user_id(session, token_hash)
+                account = (
+                    None
+                    if challenge_user_id is None
+                    else self._lock_mfa_account(session, challenge_user_id)
+                )
                 challenge = self._lock_open_challenge(session, token_hash, now)
-                account = None if challenge is None else self._lock_mfa_account(session, challenge)
-                if challenge is None:
+                if challenge is None or challenge.user_id != challenge_user_id:
                     outcome = "challenge_invalid"
                 elif account is None:
                     challenge.consumed_at = now
@@ -694,6 +706,13 @@ class StaffSessionService:
         )
 
     @staticmethod
+    def _mfa_challenge_user_id(session: Session, token_hash: str) -> int | None:
+        """Read challenge ownership without locking it; callers lock the account first."""
+        return session.scalar(
+            select(StaffMfaChallenge.user_id).where(StaffMfaChallenge.token_hash == token_hash)
+        )
+
+    @staticmethod
     def _lock_open_challenge(
         session: Session, token_hash: str, now: datetime
     ) -> StaffMfaChallenge | None:
@@ -710,11 +729,11 @@ class StaffSessionService:
             return None
         return challenge
 
-    def _lock_mfa_account(self, session: Session, challenge: StaffMfaChallenge) -> AppUser | None:
+    def _lock_mfa_account(self, session: Session, user_id: int) -> AppUser | None:
         row = session.execute(
             select(AppUser, Role.name)
             .join(Role, Role.id == AppUser.role_id)
-            .where(AppUser.id == challenge.user_id)
+            .where(AppUser.id == user_id)
             .with_for_update(of=AppUser)
         ).one_or_none()
         if row is None:
