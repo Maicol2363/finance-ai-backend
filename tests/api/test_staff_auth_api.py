@@ -89,6 +89,59 @@ def staff_client(
     get_settings.cache_clear()
 
 
+@pytest.mark.parametrize(
+    ("host", "runtime", "allowed"),
+    [
+        ("finance-api-abc-rj.a.run.app", True, True),
+        ("finance-api-abc-rj.a.run.app", False, False),
+        ("another-service-abc-rj.a.run.app", True, False),
+    ],
+)
+def test_cloud_run_tls_offload_keeps_staff_cookies_secure(
+    staff_client: tuple[TestClient, StubStaffSessionService],
+    monkeypatch: pytest.MonkeyPatch,
+    host: str,
+    runtime: bool,
+    allowed: bool,
+) -> None:
+    client, service = staff_client
+    monkeypatch.setenv("FINANCE_AI_ENVIRONMENT", "production")
+    monkeypatch.setenv("FINANCE_AI_DATABASE_URL", "postgresql+psycopg://test@localhost/test")
+    monkeypatch.setenv("FINANCE_AI_SESSION_LIMITER_SECRET", "only-for-this-test-session-limiter")
+    monkeypatch.setenv("FINANCE_AI_STAFF_CLOUD_RUN_HOST", "finance-api-abc-rj.a.run.app")
+    if runtime:
+        monkeypatch.setenv("K_SERVICE", "finance-api")
+    else:
+        monkeypatch.delenv("K_SERVICE", raising=False)
+    get_settings.cache_clear()
+
+    response = client.post(
+        f"http://{host}/api/v1/staff/auth/login",
+        json={"email": "agent@example.test", "password": "never-return-this"},
+        headers={
+            "Origin": ORIGIN,
+            "X-Staff-Request": "1",
+            "X-Forwarded-Proto": "http" if allowed else "https",
+            "X-Forwarded-Host": "finance-api-abc-rj.a.run.app",
+        },
+    )
+    if not allowed:
+        assert response.status_code == 403
+        assert response.json()["code"] == "staff_origin_denied"
+        assert service.login_calls == 0
+        assert not response.headers.get_list("set-cookie")
+        return
+
+    assert response.status_code == 200
+    cookies = response.headers.get_list("set-cookie")
+    assert len(cookies) == 2
+    for cookie in cookies:
+        assert cookie.startswith("__Host-finance_staff_")
+        attributes = set(cookie.lower().split("; ")[1:])
+        assert {"secure", "httponly", "samesite=strict", "path=/"} <= attributes
+        assert all(not attribute.startswith("domain=") for attribute in attributes)
+
+
 def test_login_issues_httponly_secure_cookies_without_credentials_in_json(
     staff_client: tuple[TestClient, StubStaffSessionService],
 ) -> None:
