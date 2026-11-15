@@ -2,7 +2,9 @@ import re
 import time
 from uuid import uuid4
 
-from starlette.responses import JSONResponse
+from starlette.datastructures import Headers
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from finance_ai.core.errors import problem_payload
@@ -67,6 +69,44 @@ def _is_receipt_upload_path(path: str) -> bool:
 MAX_RECEIPT_REQUEST_BODY_BYTES = 10 * 1024 * 1024 + 64 * 1024
 
 
+def _safe_correlation_id(value: str) -> str:
+    return value if _CORRELATION_PATTERN.fullmatch(value) else uuid4().hex
+
+
+class DiagnosticCORSMiddleware(CORSMiddleware):
+    def preflight_response(self, request_headers: Headers) -> Response:
+        response = super().preflight_response(request_headers)
+        if response.status_code != 400:
+            return response
+
+        correlation_id = _safe_correlation_id(request_headers.get("x-correlation-id", ""))
+        logger.info(
+            "Cross-origin preflight denied",
+            extra={
+                "event": "cors.preflight_denied",
+                "correlation_id": correlation_id,
+                "status": 400,
+            },
+        )
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key not in {"content-type", "content-length"}
+        }
+        headers["x-correlation-id"] = correlation_id
+        return JSONResponse(
+            status_code=400,
+            headers=headers,
+            content=problem_payload(
+                status=400,
+                code="cors_preflight_denied",
+                title="Cross-origin request denied",
+                detail="This cross-origin request is not allowed.",
+                correlation_id=correlation_id,
+            ),
+        )
+
+
 class StaffNoStoreMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -80,9 +120,7 @@ class StaffNoStoreMiddleware:
 
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         raw_correlation = headers.get(b"x-correlation-id", b"").decode("ascii", "ignore")
-        correlation_id = (
-            raw_correlation if _CORRELATION_PATTERN.fullmatch(raw_correlation) else uuid4().hex
-        )
+        correlation_id = _safe_correlation_id(raw_correlation)
         scope.setdefault("state", {})["correlation_id"] = correlation_id
 
         async def send_with_staff_headers(message: Message) -> None:
@@ -122,9 +160,7 @@ class RequestGuardMiddleware:
             existing_correlation
             if isinstance(existing_correlation, str)
             and _CORRELATION_PATTERN.fullmatch(existing_correlation)
-            else raw_correlation
-            if _CORRELATION_PATTERN.fullmatch(raw_correlation)
-            else uuid4().hex
+            else _safe_correlation_id(raw_correlation)
         )
         scope.setdefault("state", {})["correlation_id"] = correlation_id
         bind_correlation_id(correlation_id)

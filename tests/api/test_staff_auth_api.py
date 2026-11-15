@@ -174,6 +174,70 @@ def test_staff_preflight_is_exact_origin_and_never_allows_credentials(
     assert response.headers["x-correlation-id"]
 
 
+@pytest.mark.parametrize("path", ["/api/v1/incomes/1", "/api/v1/categories/order"])
+def test_allowed_browser_origin_can_preflight_put(
+    staff_client: tuple[TestClient, StubStaffSessionService], path: str
+) -> None:
+    client, _ = staff_client
+    response = client.options(
+        path,
+        headers={
+            "Origin": ORIGIN,
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert "PUT" in response.headers["access-control-allow-methods"].split(", ")
+    assert response.headers["access-control-allow-origin"] == ORIGIN
+    assert "access-control-allow-credentials" not in response.headers
+
+
+@pytest.mark.parametrize(
+    ("path", "origin", "method", "requested_headers", "correlation"),
+    [
+        ("/api/v1/incomes/1", "https://untrusted.example.test", "PUT", "", "review-cors-1"),
+        ("/api/v1/categories/order", ORIGIN, "TRACE", "", "review-cors-2"),
+        ("/api/v1/staff/auth/login", ORIGIN, "POST", "private-header", "invalid id"),
+    ],
+)
+def test_rejected_preflight_uses_safe_diagnostic(
+    staff_client: tuple[TestClient, StubStaffSessionService],
+    path: str,
+    origin: str,
+    method: str,
+    requested_headers: str,
+    correlation: str,
+) -> None:
+    client, _ = staff_client
+    response = client.options(
+        path,
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": method,
+            "Access-Control-Request-Headers": requested_headers,
+            "X-Correlation-ID": correlation,
+        },
+    )
+    assert response.status_code == 400
+    assert response.headers["content-type"] == "application/json"
+    problem = response.json()
+    assert problem["code"] == "cors_preflight_denied"
+    assert problem["detail"] == "This cross-origin request is not allowed."
+    assert problem["correlation_id"] == response.headers["x-correlation-id"]
+    if correlation == "invalid id":
+        assert len(problem["correlation_id"]) == 32
+        assert response.headers["cache-control"] == "no-store"
+    else:
+        assert problem["correlation_id"] == correlation
+    assert "untrusted.example.test" not in response.text
+    assert "private-header" not in response.text
+    assert response.headers.get("access-control-allow-origin") == (
+        ORIGIN if origin == ORIGIN else None
+    )
+    assert "access-control-allow-credentials" not in response.headers
+
+
 @pytest.mark.parametrize(
     ("path", "method", "json_body", "cookies", "service_call"),
     [
