@@ -21,6 +21,18 @@ Ticket ownership and actors reference existing accounts; the activity table stor
 
 The audit event actor and target are historical identifiers rather than cascading foreign keys, preserving event context if an account or target disappears. Event context is JSON for future allowlisted metadata; field filtering belongs in the event writer/service, not a UI. PostgreSQL blocks audit-row UPDATE/DELETE through a trigger; the downgrade refuses to drop a populated event table. Application database-role separation and operational retention/alert configuration remain deployment work. The migration creates no fabricated events.
 
+## Administrator extension (migration 0020)
+
+| Requirement | Persistence | Notes |
+|---|---|---|
+| Account suspension history | `account_suspension` (one open row per account) and `app_user.is_active` | Written only by procedure `sp_admin_set_account_suspension` together with its SEC-02 event |
+| Last active administrator | Trigger `app_user_last_admin_guard` on `app_user` | Serialized with an advisory lock; fail-closed outside READ COMMITTED |
+| Session revocation | Trigger `app_user_revoke_sessions_on_authority_change` and `user_session.issued_role_id` | Reactivation never restores sessions |
+| MFA recovery | `staff_mfa_recovery_code` (hashes only) | Shown once at issue time |
+| Escalated-ticket ownership and return | `support_ticket.admin_owner_user_id` + CHECK, procedure `sp_admin_return_escalated_ticket` | Status, assignment, ownership and activity change together |
+
+Executable definitions and rationale: the migration file and `NullCorvus/finance-ai/docs/DB-ROUTINES-ADMIN.md`.
+
 ## Unresolved decisions kept for later
 
 - Final Auditor query scope, date/time-zone presentation, actor/target lookup behavior, and report content/limits must follow the finalized AUD stories.
