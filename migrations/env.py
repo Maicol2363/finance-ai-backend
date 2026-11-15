@@ -8,6 +8,7 @@ from finance_ai.db.base import Base
 from finance_ai.db.models import (
     Account,
     AccountMovement,
+    AccountSuspension,
     AdminTotpFactor,
     AppUser,
     Category,
@@ -30,6 +31,7 @@ from finance_ai.db.models import (
 _MODELS = (
     Account,
     AccountMovement,
+    AccountSuspension,
     AppUser,
     AdminTotpFactor,
     Category,

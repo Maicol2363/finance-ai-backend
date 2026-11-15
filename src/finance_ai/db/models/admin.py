@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
+    Text,
     func,
     text,
 )
@@ -140,6 +141,42 @@ class StaffMfaRecoveryCode(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class AccountSuspension(Base):
+    """History of administrator suspensions; at most one open row per account (ADM-02)."""
+
+    __tablename__ = "account_suspension"
+    __table_args__ = (
+        CheckConstraint(
+            "length(btrim(reason)) > 0 AND char_length(reason) <= 500", name="reason_bounded"
+        ),
+        CheckConstraint(
+            "(reactivated_at IS NULL AND reactivated_by_user_id IS NULL) OR "
+            "(reactivated_at IS NOT NULL AND reactivated_by_user_id IS NOT NULL)",
+            name="reactivation_pair",
+        ),
+        CheckConstraint(
+            "reactivated_at IS NULL OR reactivated_at >= suspended_at",
+            name="reactivation_after_suspension",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT"), nullable=False
+    )
+    suspended_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    suspended_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    reactivated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT")
+    )
+    reactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 Index(
     "ix_staff_mfa_recovery_code_user_open",
     StaffMfaRecoveryCode.user_id,
@@ -151,3 +188,15 @@ Index(
 )
 Index("ix_staff_invitation_expiry", StaffInvitation.expires_at)
 Index("ix_admin_totp_factor_user_state", AdminTotpFactor.admin_user_id, AdminTotpFactor.state)
+Index(
+    "uq_account_suspension_open",
+    AccountSuspension.user_id,
+    unique=True,
+    postgresql_where=text("reactivated_at IS NULL"),
+    sqlite_where=text("reactivated_at IS NULL"),
+)
+Index(
+    "ix_account_suspension_user_history",
+    AccountSuspension.user_id,
+    AccountSuspension.suspended_at,
+)
