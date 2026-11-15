@@ -24,6 +24,7 @@ from finance_ai.core.errors import (
 from finance_ai.core.roles import ADMIN_ROLE, SECURITY_AUDITOR_ROLE, SUPPORT_AGENT_ROLE
 from finance_ai.db.session import get_session_factory
 from finance_ai.staff_auth.mfa import StaffMfaPolicy
+from finance_ai.staff_auth.recovery import StaffRecoveryService
 from finance_ai.staff_auth.schemas import StaffSessionUser
 from finance_ai.staff_auth.service import StaffLifetimes, StaffSessionService
 
@@ -44,6 +45,17 @@ def get_staff_session_service() -> StaffSessionService:
             idle=timedelta(minutes=settings.staff_admin_idle_minutes),
             absolute=timedelta(hours=settings.staff_admin_absolute_hours),
         ),
+    )
+
+
+def get_staff_recovery_service() -> StaffRecoveryService:
+    return StaffRecoveryService(
+        session_factory=get_session_factory(),
+        password_hasher=get_password_hasher(),
+        credential_codec=get_credential_codec(),
+        clock=SystemClock(),
+        audit_writer=SecurityAuditWriter(),
+        mfa=_staff_mfa_policy(),
     )
 
 

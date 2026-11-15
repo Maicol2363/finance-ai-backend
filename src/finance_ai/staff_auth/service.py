@@ -874,24 +874,7 @@ class StaffSessionService:
 
     @staticmethod
     def _activation_is_authoritative(session: Session, user: AppUser, role_name: str) -> bool:
-        # Administrators are provisioned by the controlled backend procedure and never
-        # through an invitation; their authority is the current role plus MFA.
-        if role_name == ADMIN_ROLE:
-            return True
-        return bool(
-            session.scalar(
-                select(StaffInvitation.id)
-                .join(Role, Role.id == StaffInvitation.role_id)
-                .where(
-                    StaffInvitation.activated_user_id == user.id,
-                    StaffInvitation.consumed_at.is_not(None),
-                    StaffInvitation.email == user.email,
-                    StaffInvitation.role_id == user.role_id,
-                    Role.name.in_(STAFF_PORTAL_ROLES),
-                )
-                .limit(1)
-            )
-        )
+        return staff_activation_is_authoritative(session, user, role_name)
 
     def _write_login_denied(
         self, session: Session, user_id: int, reason: str, correlation_id: str
@@ -918,6 +901,28 @@ class StaffSessionService:
                 )
         except Exception as exc:
             raise AuditUnavailableError() from exc
+
+
+def staff_activation_is_authoritative(session: Session, user: AppUser, role_name: str) -> bool:
+    """Whether the account's staff role is backed by a trusted provisioning path."""
+    # Administrators are provisioned by the controlled backend procedure and never through an
+    # invitation; their authority is the current role plus MFA.
+    if role_name == ADMIN_ROLE:
+        return True
+    return bool(
+        session.scalar(
+            select(StaffInvitation.id)
+            .join(Role, Role.id == StaffInvitation.role_id)
+            .where(
+                StaffInvitation.activated_user_id == user.id,
+                StaffInvitation.consumed_at.is_not(None),
+                StaffInvitation.email == user.email,
+                StaffInvitation.role_id == user.role_id,
+                Role.name.in_(STAFF_PORTAL_ROLES),
+            )
+            .limit(1)
+        )
+    )
 
 
 def _utc(value: datetime) -> datetime:

@@ -925,6 +925,7 @@
                   "account",
                   "audit_report",
                   "protected_resource",
+                  "staff_invitation",
                   "staff_session",
                   "support_ticket"
                 ],
@@ -4450,6 +4451,64 @@
         "title": "StaffMfaEnrollmentView",
         "type": "object"
       },
+      "StaffMfaResetRequest": {
+        "additionalProperties": false,
+        "description": "Lost-device recovery or voluntary authenticator replacement (exactly one proof).",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 6,
+                "minLength": 6,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "writeOnly": true
+          },
+          "email": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "recovery_code": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 32,
+                "minLength": 16,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Code",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "StaffMfaResetRequest",
+        "type": "object"
+      },
       "StaffMfaVerifyRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4466,6 +4525,42 @@
           "code"
         ],
         "title": "StaffMfaVerifyRequest",
+        "type": "object"
+      },
+      "StaffRecoveryCodesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "StaffRecoveryCodesRequest",
+        "type": "object"
+      },
+      "StaffRecoveryCodesView": {
+        "additionalProperties": false,
+        "description": "Single-use codes shown once; only their hashes are stored.",
+        "properties": {
+          "recovery_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recovery Codes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "recovery_codes"
+        ],
+        "title": "StaffRecoveryCodesView",
         "type": "object"
       },
       "StaffSessionUser": {
@@ -11020,6 +11115,7 @@
                     "account",
                     "audit_report",
                     "protected_resource",
+                    "staff_invitation",
                     "staff_session",
                     "support_ticket"
                   ],
@@ -11577,6 +11673,7 @@
                     "account",
                     "audit_report",
                     "protected_resource",
+                    "staff_invitation",
                     "staff_session",
                     "support_ticket"
                   ],
@@ -11694,7 +11791,7 @@
     },
     "/api/v1/staff/auth/login": {
       "post": {
-        "description": "Verifies the staff password. Support Agents receive a session (200). Accounts whose role requires SEC-01 MFA (security_auditor) receive 202 with a short-lived, HttpOnly challenge cookie and no staff authority until TOTP verification succeeds.",
+        "description": "Verifies the staff password. Support Agents receive a session (200). Accounts whose role requires SEC-01 MFA (admin, security_auditor) receive 202 with a short-lived, HttpOnly challenge cookie and no staff authority until TOTP verification succeeds.",
         "operationId": "staff_login_api_v1_staff_auth_login_post",
         "requestBody": {
           "content": {
@@ -12041,6 +12138,170 @@
           }
         },
         "summary": "Start Staff Authenticator Enrollment",
+        "tags": [
+          "Staff browser authentication"
+        ]
+      }
+    },
+    "/api/v1/staff/auth/mfa/recovery-codes": {
+      "post": {
+        "description": "For an MFA-verified privileged session, re-confirms the password and replaces the account's single-use recovery codes. The codes are returned once and stored hashed.",
+        "operationId": "staff_recovery_codes_api_v1_staff_auth_mfa_recovery_codes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffRecoveryCodesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRecoveryCodesView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Issue Staff Recovery Codes",
+        "tags": [
+          "Staff browser authentication"
+        ]
+      }
+    },
+    "/api/v1/staff/auth/mfa/reset": {
+      "post": {
+        "description": "Verifies the account password plus exactly one proof: a single-use recovery code (lost device) or the current authenticator code (replacement). On success every authenticator, recovery code and live session of the account is invalidated and an enrollment challenge cookie is issued. Failures share one generic response.",
+        "operationId": "staff_mfa_reset_api_v1_staff_auth_mfa_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffMfaResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMfaChallengeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Recover or Replace the Staff Authenticator",
         "tags": [
           "Staff browser authentication"
         ]

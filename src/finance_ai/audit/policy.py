@@ -21,7 +21,12 @@ from finance_ai.core.errors import AuditPeriodTooLongError, AuditQueryInvalidErr
 TimeZoneName = Literal["America/Bogota", "UTC"]
 AuditOutcome = Literal["success", "denied", "failure"]
 AuditTargetType = Literal[
-    "account", "audit_report", "protected_resource", "staff_session", "support_ticket"
+    "account",
+    "audit_report",
+    "protected_resource",
+    "staff_invitation",
+    "staff_session",
+    "support_ticket",
 ]
 
 DEFAULT_TIME_ZONE: Final[TimeZoneName] = "America/Bogota"
@@ -40,6 +45,7 @@ AUDIT_TARGET_TYPES: Final[tuple[str, ...]] = (
     "account",
     "audit_report",
     "protected_resource",
+    "staff_invitation",
     "staff_session",
     "support_ticket",
 )

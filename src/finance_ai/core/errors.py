@@ -821,6 +821,29 @@ class MfaRateLimitedError(AppError):
         )
 
 
+class MfaRecoveryInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="mfa_recovery_invalid",
+            title="Recovery could not be verified",
+            detail=(
+                "The email, password or recovery proof is not valid. "
+                "Contact an administrator if you cannot recover access."
+            ),
+        )
+
+
+class PasswordConfirmationInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="password_confirmation_invalid",
+            title="Password confirmation failed",
+            detail="The password you entered is not correct.",
+        )
+
+
 class AuditQueryInvalidError(AppError):
     def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
         super().__init__(
