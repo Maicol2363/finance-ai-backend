@@ -844,6 +844,68 @@ class PasswordConfirmationInvalidError(AppError):
         )
 
 
+class AdminRateLimitedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=429,
+            code="admin_rate_limited",
+            title="Too many administrator requests",
+            detail="Please wait before trying again.",
+            headers={"Retry-After": "60"},
+        )
+
+
+class AdminRequestInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="admin_request_invalid",
+            title="Request is invalid",
+            detail="Correct the highlighted fields and try again.",
+            field_errors=field_errors,
+        )
+
+
+class AdminAccountNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="account_not_found",
+            title="Account not found",
+            detail="No login account matches this lookup.",
+        )
+
+
+class AdminSelfActionError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="admin_self_action_denied",
+            title="Action not allowed on your own account",
+            detail="You cannot perform this action on your own account.",
+        )
+
+
+class LastActiveAdminError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="last_active_admin_protected",
+            title="Last active administrator",
+            detail="This change would leave the system without an active administrator.",
+        )
+
+
+class AccountStateConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_state_conflict",
+            title="Account is already in that state",
+            detail="The account is already in the requested state. Refresh and try again.",
+        )
+
+
 class AuditQueryInvalidError(AppError):
     def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
         super().__init__(

@@ -57,6 +57,16 @@ def clean_rows(migrated_database: None) -> Iterator[None]:
         )
         session.commit()
     yield
+    # Leave no audit evidence behind: other modules rebuild the schema from scratch and the
+    # audit table refuses to be dropped while it holds events.
+    with get_session_factory()() as session:
+        session.execute(
+            text(
+                "TRUNCATE TABLE security_audit_event, account_suspension, app_user "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
+        session.commit()
 
 
 def make_user(role: str, email: str, *, active: bool = True) -> int:
@@ -420,7 +430,7 @@ def test_p1_concurrent_mutual_suspension_leaves_exactly_one_active_administrator
     two.join(timeout=15)
 
     assert results["one"] == "ok"
-    assert results["two"] in {"last_admin", "actor_not_authorized"}
+    assert results["two"] == "last_admin"
     assert (
         scalar(
             "SELECT count(*) FROM app_user WHERE is_active AND role_id = "
@@ -446,3 +456,152 @@ def test_open_suspension_is_unique_per_account() -> None:
                 {"u": customer, "a": admin},
             )
         session.rollback()
+
+
+# --- AdminAccountService on PostgreSQL: state change and audit evidence are one transaction ----
+
+
+def audit_events() -> list[tuple[str, str, str | None, str | None, dict[str, object]]]:
+    with get_session_factory()() as session:
+        rows = session.execute(
+            text(
+                "SELECT event_type, result, actor_id, target_resource_id, context "
+                "FROM security_audit_event ORDER BY occurred_at, event_id"
+            )
+        )
+        return [(r[0], r[1], r[2], r[3], r[4]) for r in rows]
+
+
+def real_service(writer: object | None = None):  # type: ignore[no-untyped-def]
+    from finance_ai.admin.accounts_service import AdminAccountService
+    from finance_ai.audit.service import SecurityAuditWriter
+
+    return AdminAccountService(get_session_factory(), writer or SecurityAuditWriter())  # type: ignore[arg-type]
+
+
+def test_service_suspension_revokes_sessions_and_commits_one_audit_event() -> None:
+    admin = make_user("admin", "admin@example.test")
+    customer = make_user("user", "customer@example.test")
+    session_id = make_session(customer, "a", platform="android")
+
+    account = real_service().suspend(
+        actor_id=admin, target_id=customer, reason="  fraud review ", correlation_id="corr-1"
+    )
+
+    assert account.status == "suspended" and account.suspension is not None
+    assert account.suspension.reason == "fraud review"
+    assert (
+        scalar("SELECT revocation_reason FROM user_session WHERE id = :id", id=session_id)
+        == "suspended"
+    )
+    assert audit_events() == [
+        (
+            "account.suspended",
+            "success",
+            str(admin),
+            str(customer),
+            {"reason": "administrator_action"},
+        )
+    ]
+
+
+def test_service_self_suspension_is_denied_audited_and_changes_nothing() -> None:
+    from finance_ai.core.errors import AdminSelfActionError
+
+    admin = make_user("admin", "admin@example.test")
+    make_user("admin", "second@example.test")
+
+    with pytest.raises(AdminSelfActionError):
+        real_service().suspend(
+            actor_id=admin, target_id=admin, reason="oops", correlation_id="corr-2"
+        )
+
+    assert scalar("SELECT is_active FROM app_user WHERE id = :id", id=admin) is True
+    assert audit_events()[0][:2] == ("account.suspended", "denied")
+    assert scalar("SELECT count(*) FROM account_suspension") == 0
+
+
+def test_service_rolls_back_the_state_change_when_the_audit_event_fails() -> None:
+    from finance_ai.audit.service import SecurityAuditWriter
+    from finance_ai.core.errors import AuditUnavailableError
+
+    class FailingWriter(SecurityAuditWriter):
+        def append(self, session, **kwargs):  # type: ignore[no-untyped-def,override]
+            raise RuntimeError("audit store unavailable")
+
+    admin = make_user("admin", "admin@example.test")
+    customer = make_user("user", "customer@example.test")
+    session_id = make_session(customer, "a")
+
+    with pytest.raises(AuditUnavailableError):
+        real_service(FailingWriter()).suspend(
+            actor_id=admin, target_id=customer, reason="fraud", correlation_id="corr-3"
+        )
+
+    assert scalar("SELECT is_active FROM app_user WHERE id = :id", id=customer) is True
+    assert scalar("SELECT count(*) FROM account_suspension") == 0
+    assert (
+        scalar("SELECT revoked_at IS NULL FROM user_session WHERE id = :id", id=session_id) is True
+    )
+    assert audit_events() == []
+
+
+def test_service_reactivation_never_restores_old_sessions() -> None:
+    admin = make_user("admin", "admin@example.test")
+    customer = make_user("user", "customer@example.test")
+    session_id = make_session(customer, "a")
+    service = real_service()
+    service.suspend(actor_id=admin, target_id=customer, reason="review", correlation_id="c1")
+
+    account = service.reactivate(actor_id=admin, target_id=customer, correlation_id="c2")
+
+    assert account.status == "active" and account.suspension is None
+    assert (
+        scalar("SELECT revocation_reason FROM user_session WHERE id = :id", id=session_id)
+        == "suspended"
+    )
+    assert [event[0] for event in audit_events()] == ["account.suspended", "account.reactivated"]
+
+
+def test_service_concurrent_mutual_suspension_reports_the_last_administrator_guard() -> None:
+    from finance_ai.core.errors import LastActiveAdminError
+
+    first = make_user("admin", "one@example.test")
+    second = make_user("admin", "two@example.test")
+    holding, release = threading.Event(), threading.Event()
+    outcomes: dict[str, str] = {}
+
+    def run(name: str, actor: int, target: int, hold: bool) -> None:
+        try:
+            if hold:
+                # Hold the first transaction open through the same procedure the service uses.
+                with get_session_factory()() as session:
+                    session.execute(
+                        CALL,
+                        {"actor": actor, "target": target, "suspend": True, "reason": "mutual"},
+                    )
+                    holding.set()
+                    release.wait(timeout=10)
+                    session.commit()
+                outcomes[name] = "ok"
+            else:
+                real_service().suspend(
+                    actor_id=actor, target_id=target, reason="mutual", correlation_id="c-" + name
+                )
+                outcomes[name] = "ok"
+        except LastActiveAdminError:
+            outcomes[name] = "last_admin"
+
+    one = threading.Thread(target=run, args=("one", first, second, True))
+    two = threading.Thread(target=run, args=("two", second, first, False))
+    one.start()
+    assert holding.wait(timeout=10)
+    two.start()
+    time.sleep(0.5)
+    release.set()
+    one.join(timeout=15)
+    two.join(timeout=15)
+
+    assert outcomes == {"one": "ok", "two": "last_admin"}
+    assert scalar("SELECT is_active FROM app_user WHERE id = :id", id=first) is True
+    assert ("account.suspended", "denied") in [event[:2] for event in audit_events()]
