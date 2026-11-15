@@ -8,27 +8,35 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 
 from finance_ai.admin.dependencies import (
     AccountIdPath,
     AccountService,
     ReadingAdmin,
     StaffService,
+    TicketService,
     WritingAdmin,
     correlation_id,
 )
 from finance_ai.admin.schemas import (
     MAX_BIGINT,
     AdminAccount,
+    AdminCase,
     ChangeStaffRoleRequest,
+    ClaimTicketRequest,
     CreateStaffInvitationRequest,
+    EscalatedTicketItem,
+    EscalationScope,
     ReactivateAccountRequest,
+    ReturnTicketRequest,
+    ReturnTicketResult,
     StaffAccountView,
     StaffInvitationCreated,
     SuspendAccountRequest,
 )
 from finance_ai.core.errors import ProblemResponse
+from finance_ai.support.schemas import MessageCreate, TicketId, TransitionRequest
 
 router = APIRouter(prefix="/staff/admin", tags=["Administrator"])
 
@@ -205,5 +213,149 @@ def change_staff_role(
         actor_id=admin.id,
         staff_id=staff_id,
         new_role=payload.role,
+        correlation_id=correlation_id(request),
+    )
+
+
+@router.get(
+    "/tickets/escalated",
+    response_model=list[EscalatedTicketItem],
+    summary="List Escalated Tickets (ADM-05)",
+    description="Escalated cases only, oldest first, bounded to 100 rows.",
+    responses=_COMMON_ERRORS,
+)
+def list_escalated_tickets(
+    admin: ReadingAdmin,
+    service: TicketService,
+    scope: Annotated[EscalationScope, Query()] = "all",
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[EscalatedTicketItem]:
+    return service.list_escalated(admin_id=admin.id, scope=scope, limit=limit)
+
+
+@router.get(
+    "/tickets/{ticket_id}",
+    response_model=AdminCase,
+    summary="View an Escalated Case (ADM-05)",
+    description=(
+        "Escalation reason, allowed customer metadata, conversation and activity history of "
+        "one escalated ticket. No transactions, balances, receipts or credentials are exposed."
+    ),
+    responses={**_COMMON_ERRORS, 404: {"model": ProblemResponse}},
+)
+def get_escalated_case(
+    ticket_id: TicketId, admin: ReadingAdmin, service: TicketService
+) -> AdminCase:
+    return service.get_case(admin_id=admin.id, ticket_id=ticket_id)
+
+
+@router.post(
+    "/tickets/{ticket_id}/claim",
+    response_model=AdminCase,
+    summary="Claim an Escalated Case (ADM-05)",
+    description="Exactly one administrator can own a case; a concurrent claim gets a 409.",
+    responses={**_COMMON_ERRORS, 404: {"model": ProblemResponse}, 409: {"model": ProblemResponse}},
+)
+def claim_escalated_case(
+    ticket_id: TicketId,
+    payload: ClaimTicketRequest,
+    request: Request,
+    admin: WritingAdmin,
+    service: TicketService,
+) -> AdminCase:
+    del payload
+    return service.claim(
+        admin_id=admin.id, ticket_id=ticket_id, correlation_id=correlation_id(request)
+    )
+
+
+@router.post(
+    "/tickets/{ticket_id}/messages",
+    status_code=204,
+    response_class=Response,
+    summary="Reply to the Customer (ADM-05)",
+    description=(
+        "Customer-visible message in the existing ticket conversation, only by the owning "
+        "administrator. There are no private notes or internal messaging."
+    ),
+    responses={
+        **_COMMON_ERRORS,
+        404: {"model": ProblemResponse},
+        409: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+    },
+)
+def reply_to_customer(
+    ticket_id: TicketId,
+    payload: MessageCreate,
+    request: Request,
+    admin: WritingAdmin,
+    service: TicketService,
+) -> Response:
+    service.reply(
+        admin_id=admin.id,
+        ticket_id=ticket_id,
+        body=payload.body,
+        correlation_id=correlation_id(request),
+    )
+    return Response(status_code=204)
+
+
+@router.post(
+    "/tickets/{ticket_id}/resolve",
+    status_code=204,
+    response_class=Response,
+    summary="Resolve an Escalated Case (ADM-05)",
+    description="Requires a resolution summary, which the owning active customer can read.",
+    responses={
+        **_COMMON_ERRORS,
+        404: {"model": ProblemResponse},
+        409: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+    },
+)
+def resolve_escalated_case(
+    ticket_id: TicketId,
+    payload: TransitionRequest,
+    request: Request,
+    admin: WritingAdmin,
+    service: TicketService,
+) -> Response:
+    service.resolve(
+        admin_id=admin.id,
+        ticket_id=ticket_id,
+        summary=payload.summary,
+        correlation_id=correlation_id(request),
+    )
+    return Response(status_code=204)
+
+
+@router.post(
+    "/tickets/{ticket_id}/return",
+    response_model=ReturnTicketResult,
+    summary="Return a Case to Support (ADM-05)",
+    description=(
+        "Requires a staff-only return reason. If the originating agent is still an active "
+        "support agent the case returns to that agent as in_progress; otherwise it returns "
+        "unassigned to the open queue. Status and assignment change atomically."
+    ),
+    responses={
+        **_COMMON_ERRORS,
+        404: {"model": ProblemResponse},
+        409: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+    },
+)
+def return_case_to_support(
+    ticket_id: TicketId,
+    payload: ReturnTicketRequest,
+    request: Request,
+    admin: WritingAdmin,
+    service: TicketService,
+) -> ReturnTicketResult:
+    return service.return_to_support(
+        admin_id=admin.id,
+        ticket_id=ticket_id,
+        reason=payload.reason,
         correlation_id=correlation_id(request),
     )

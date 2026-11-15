@@ -794,3 +794,383 @@ def test_a_used_or_expired_invitation_cannot_be_reused_after_commit() -> None:
             password_confirmation=STRONG_PASSWORD,
             correlation_id="c4",
         )
+
+
+# --- ADM-05 on PostgreSQL: escalated tickets, claim, return (P2), customer visibility ---------
+
+
+def ticket_services():  # type: ignore[no-untyped-def]
+    from finance_ai.admin.tickets_service import AdminTicketService
+    from finance_ai.audit.service import SecurityAuditWriter
+    from finance_ai.auth.session_policy import SystemClock
+    from finance_ai.support.service import SupportTicketService
+    from finance_ai.support.workflow import TicketWorkflow
+
+    factory = get_session_factory()
+    return (
+        AdminTicketService(factory, SecurityAuditWriter(), SystemClock()),
+        TicketWorkflow(factory),
+        SupportTicketService(factory, SecurityAuditWriter()),
+    )
+
+
+ESCALATION_REASON = "ESCALATION-REASON refund policy exception"
+RETURN_REASON = "RETURN-REASON customer verified, continue"
+RESOLUTION = "Account restored after identity check."
+
+
+def staff_user(user_id: int, role: str):  # type: ignore[no-untyped-def]
+    from finance_ai.staff_auth.schemas import StaffSessionUser
+
+    return StaffSessionUser(id=user_id, email=f"u{user_id}@example.test", role=role)
+
+
+def make_escalated_ticket(agent_id: int, customer_id: int) -> int:
+    """Drive the real Support workflow: create, claim and escalate."""
+    from finance_ai.support.schemas import AgentTicketCreate
+
+    _admin_tickets, workflow, support = ticket_services()
+    ticket = workflow.create(
+        agent_id,
+        AgentTicketCreate(
+            subject="Cannot sign in",
+            category="account",
+            description="Customer cannot sign in after the reset",
+            customer_identifier=str(customer_id),
+        ),
+        "corr-create",
+        staff=True,
+    )
+    support.claim(staff_user(agent_id, "support_agent"), ticket.id, "corr-claim")
+    workflow.transition(agent_id, ticket.id, ESCALATION_REASON, "corr-escalate", escalate=True)
+    return ticket.id
+
+
+def ticket_row(ticket_id: int) -> dict[str, object]:
+    with get_session_factory()() as session:
+        row = session.execute(
+            text(
+                "SELECT status, assigned_staff_user_id, admin_owner_user_id, "
+                "originating_support_agent_id, resolution_summary FROM support_ticket "
+                "WHERE id = :id"
+            ),
+            {"id": ticket_id},
+        ).one()
+        return dict(row._mapping)
+
+
+def activity_types(ticket_id: int) -> list[str]:
+    with get_session_factory()() as session:
+        rows = session.execute(
+            text(
+                "SELECT event_type FROM support_ticket_activity WHERE ticket_id = :id ORDER BY id"
+            ),
+            {"id": ticket_id},
+        )
+        return [row[0] for row in rows]
+
+
+def support_world() -> tuple[int, int, int, int]:
+    admin = make_user("admin", "admin@example.test")
+    agent = make_user("support_agent", "agent@example.test")
+    customer = make_user("user", "customer@example.test")
+    other_admin = make_user("admin", "admin2@example.test")
+    return admin, agent, customer, other_admin
+
+
+def test_adm05_full_lifecycle_return_to_the_active_originating_agent() -> None:
+    admin, agent, customer, _other = support_world()
+    tickets, workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+
+    queue = tickets.list_escalated(admin_id=admin, scope="unclaimed", limit=50)
+    assert [item.id for item in queue] == [ticket_id] and queue[0].owned_by_me is False
+
+    case = tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c-claim")
+    assert case.owned_by_me and case.escalation_reason == ESCALATION_REASON
+    assert case.originating_agent.user_id == agent and case.originating_agent.can_receive_return
+    assert case.customer.email == "customer@example.test"
+
+    tickets.reply(
+        admin_id=admin, ticket_id=ticket_id, body="We are checking.", correlation_id="c-r"
+    )
+    outcome = tickets.return_to_support(
+        admin_id=admin, ticket_id=ticket_id, reason=RETURN_REASON, correlation_id="c-ret"
+    )
+
+    assert outcome.status == "in_progress" and outcome.assigned_staff_user_id == agent
+    assert ticket_row(ticket_id) == {
+        "status": "in_progress",
+        "assigned_staff_user_id": agent,
+        "admin_owner_user_id": None,
+        "originating_support_agent_id": agent,
+        "resolution_summary": None,
+    }
+    assert activity_types(ticket_id) == [
+        "ticket_created",
+        "ticket_claimed",
+        "ticket_escalated",
+        "ticket_admin_claimed",
+        "message_sent",
+        "ticket_returned",
+    ]
+    workflow.message(agent, ticket_id, "Back with Support.", "c-agent", staff=True)
+    events = [event[:2] for event in audit_events()]
+    assert ("support.ticket_returned", "success") in events
+    assert ("ticket.escalated", "success") in events
+
+
+@pytest.mark.parametrize("ineligible", ["suspended", "role_changed", "no_origin"])
+def test_adm05_return_goes_to_the_open_queue_when_the_origin_is_not_eligible(
+    ineligible: str,
+) -> None:
+    admin, agent, customer, _other = support_world()
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c-claim")
+    with get_session_factory()() as session:
+        if ineligible == "suspended":
+            session.execute(
+                text("UPDATE app_user SET is_active = false WHERE id = :id"), {"id": agent}
+            )
+        elif ineligible == "role_changed":
+            session.execute(
+                text(
+                    "UPDATE app_user SET role_id = "
+                    "(SELECT id FROM role WHERE name = 'security_auditor') WHERE id = :id"
+                ),
+                {"id": agent},
+            )
+        else:
+            session.execute(
+                text(
+                    "UPDATE support_ticket SET originating_support_agent_id = NULL WHERE id = :id"
+                ),
+                {"id": ticket_id},
+            )
+        session.commit()
+
+    outcome = tickets.return_to_support(
+        admin_id=admin, ticket_id=ticket_id, reason=RETURN_REASON, correlation_id="c-ret"
+    )
+
+    assert outcome.status == "open" and outcome.assigned_staff_user_id is None
+    row = ticket_row(ticket_id)
+    assert row["status"] == "open" and row["assigned_staff_user_id"] is None
+    assert row["admin_owner_user_id"] is None
+
+
+def test_adm05_only_one_administrator_can_claim_under_concurrency() -> None:
+    from finance_ai.core.errors import EscalationClaimConflictError
+
+    admin, agent, customer, other_admin = support_world()
+    third = make_user("admin", "admin3@example.test")
+    fourth = make_user("admin", "admin4@example.test")
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    barrier = threading.Barrier(4)
+    outcomes: dict[int, str] = {}
+    lock = threading.Lock()
+
+    def attempt(admin_id: int) -> None:
+        barrier.wait(timeout=10)
+        try:
+            tickets.claim(admin_id=admin_id, ticket_id=ticket_id, correlation_id=f"c-{admin_id}")
+            result = "claimed"
+        except EscalationClaimConflictError:
+            result = "conflict"
+        with lock:
+            outcomes[admin_id] = result
+
+    threads = [
+        threading.Thread(target=attempt, args=(a,)) for a in (admin, other_admin, third, fourth)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(outcomes.values()) == ["claimed", "conflict", "conflict", "conflict"]
+    winner = next(admin_id for admin_id, result in outcomes.items() if result == "claimed")
+    assert ticket_row(ticket_id)["admin_owner_user_id"] == winner
+    assert activity_types(ticket_id).count("ticket_admin_claimed") == 1
+
+
+def test_adm05_mutations_require_current_ownership_and_an_escalated_ticket() -> None:
+    from finance_ai.core.errors import SupportTicketNotFoundError, SupportTicketStateConflictError
+
+    admin, agent, customer, other_admin = support_world()
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c")
+    before = ticket_row(ticket_id)
+
+    with pytest.raises(SupportTicketStateConflictError):
+        tickets.reply(admin_id=other_admin, ticket_id=ticket_id, body="hi", correlation_id="c")
+    with pytest.raises(SupportTicketStateConflictError):
+        tickets.resolve(admin_id=other_admin, ticket_id=ticket_id, summary="x", correlation_id="c")
+    with pytest.raises(SupportTicketStateConflictError):
+        tickets.return_to_support(
+            admin_id=other_admin, ticket_id=ticket_id, reason="x", correlation_id="c"
+        )
+    with pytest.raises(SupportTicketNotFoundError):
+        tickets.get_case(admin_id=admin, ticket_id=987654)
+
+    assert ticket_row(ticket_id) == before
+
+
+def test_adm05_unescalated_tickets_are_not_reachable_by_administrators() -> None:
+    from finance_ai.core.errors import SupportTicketNotFoundError
+    from finance_ai.support.schemas import AgentTicketCreate
+
+    admin, agent, customer, _other = support_world()
+    tickets, workflow, _support = ticket_services()
+    ticket = workflow.create(
+        agent,
+        AgentTicketCreate(
+            subject="Plain ticket",
+            category="general",
+            description="Not escalated",
+            customer_identifier=str(customer),
+        ),
+        "c",
+        staff=True,
+    )
+
+    with pytest.raises(SupportTicketNotFoundError):
+        tickets.get_case(admin_id=admin, ticket_id=ticket.id)
+    with pytest.raises(SupportTicketNotFoundError):
+        tickets.claim(admin_id=admin, ticket_id=ticket.id, correlation_id="c")
+    assert tickets.list_escalated(admin_id=admin, scope="all", limit=100) == []
+
+
+def test_adm05_resolution_is_customer_visible_but_staff_reasons_never_reach_the_customer() -> None:
+    admin, agent, customer, _other = support_world()
+    tickets, workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c")
+    tickets.reply(admin_id=admin, ticket_id=ticket_id, body="Public reply", correlation_id="c")
+    tickets.return_to_support(
+        admin_id=admin, ticket_id=ticket_id, reason=RETURN_REASON, correlation_id="c"
+    )
+    workflow.transition(agent, ticket_id, ESCALATION_REASON, "c", escalate=True)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c")
+
+    tickets.resolve(admin_id=admin, ticket_id=ticket_id, summary=RESOLUTION, correlation_id="c")
+
+    assert ticket_row(ticket_id)["status"] == "resolved"
+    assert ticket_row(ticket_id)["admin_owner_user_id"] is None
+    conversation = workflow.read(customer, ticket_id, staff=False)
+    payload = conversation.model_dump_json()
+    assert RESOLUTION in payload and "Public reply" in payload
+    assert "ESCALATION-REASON" not in payload and "RETURN-REASON" not in payload
+    assert "internal_reason" not in payload and "history" not in payload
+    listed = workflow.list_own(customer)
+    assert "ESCALATION-REASON" not in str(listed) and "RETURN-REASON" not in str(listed)
+    staff_view = workflow.read(agent, ticket_id, staff=True)
+    assert "internal_reason" in staff_view.model_dump_json()  # staff projection keeps them
+
+
+def test_adm05_a_suspended_customer_cannot_read_the_resolution_until_reactivated() -> None:
+    from finance_ai.core.errors import StaffAccessDeniedError
+
+    admin, agent, customer, _other = support_world()
+    tickets, workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c")
+    tickets.resolve(admin_id=admin, ticket_id=ticket_id, summary=RESOLUTION, correlation_id="c")
+    assert call_suspension(admin, customer, True, "chargeback review") == "ok"
+
+    with pytest.raises(StaffAccessDeniedError):
+        workflow.read(customer, ticket_id, staff=False)
+    with pytest.raises(StaffAccessDeniedError):
+        workflow.list_own(customer)
+
+    assert call_suspension(admin, customer, False, None) == "ok"
+    assert RESOLUTION in workflow.read(customer, ticket_id, staff=False).model_dump_json()
+
+
+def test_adm05_originating_agent_keeps_read_only_access_while_escalated() -> None:
+    from finance_ai.core.errors import SupportTicketStateConflictError
+
+    admin, agent, customer, _other = support_world()
+    tickets, workflow, support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c")
+
+    detail = support.get_assigned(staff_user(agent, "support_agent"), ticket_id)
+    conversation = workflow.read(agent, ticket_id, staff=True)
+
+    assert detail.id == ticket_id and conversation.ticket.status == "escalated"
+    with pytest.raises(SupportTicketStateConflictError):
+        workflow.message(agent, ticket_id, "I will keep working", "c", staff=True)
+    with pytest.raises(SupportTicketStateConflictError):
+        workflow.transition(agent, ticket_id, "resolve it", "c", escalate=False)
+
+
+def test_adm05_return_is_atomic_and_rejects_blank_reasons_without_any_change() -> None:
+    from finance_ai.core.errors import AdminRequestInvalidError, SupportTicketStateConflictError
+
+    admin, agent, customer, _other = support_world()
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c")
+    before_activity = activity_types(ticket_id)
+
+    with pytest.raises(AdminRequestInvalidError):
+        tickets.return_to_support(
+            admin_id=admin, ticket_id=ticket_id, reason="   ", correlation_id="c"
+        )
+
+    assert ticket_row(ticket_id)["status"] == "escalated"
+    assert ticket_row(ticket_id)["admin_owner_user_id"] == admin
+    assert activity_types(ticket_id) == before_activity
+    tickets.return_to_support(admin_id=admin, ticket_id=ticket_id, reason="ok", correlation_id="c")
+    with pytest.raises(SupportTicketStateConflictError):
+        tickets.return_to_support(
+            admin_id=admin, ticket_id=ticket_id, reason="again", correlation_id="c"
+        )
+
+
+def test_adm05_database_refuses_an_owner_on_a_ticket_that_is_not_escalated() -> None:
+    from finance_ai.support.schemas import AgentTicketCreate
+
+    admin, agent, customer, _other = support_world()
+    _tickets, workflow, _support = ticket_services()
+    ticket = workflow.create(
+        agent,
+        AgentTicketCreate(
+            subject="Plain", category="general", description="d", customer_identifier=str(customer)
+        ),
+        "c",
+        staff=True,
+    )
+    with get_session_factory()() as session:
+        with pytest.raises(IntegrityError):
+            session.execute(
+                text("UPDATE support_ticket SET admin_owner_user_id = :a WHERE id = :id"),
+                {"a": admin, "id": ticket.id},
+            )
+        session.rollback()
+
+
+def test_adm05_audit_records_the_transitions_without_conversation_text() -> None:
+    admin, agent, customer, _other = support_world()
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c")
+    tickets.reply(admin_id=admin, ticket_id=ticket_id, body="SECRET-BODY text", correlation_id="c")
+    tickets.return_to_support(
+        admin_id=admin, ticket_id=ticket_id, reason=RETURN_REASON, correlation_id="c"
+    )
+
+    rendered = str(audit_events())
+    assert "SECRET-BODY" not in rendered and "RETURN-REASON" not in rendered
+    assert "ESCALATION-REASON" not in rendered
+    admin_events = [event for event in audit_events() if event[2] == str(admin)]
+    assert [event[0] for event in admin_events] == [
+        "support.ticket_claimed",
+        "support.message_sent",
+        "support.ticket_returned",
+    ]
+    assert all(event[3] == str(ticket_id) for event in admin_events)

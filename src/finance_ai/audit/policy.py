@@ -90,6 +90,7 @@ KNOWN_EVENT_TYPES: Final[tuple[str, ...]] = tuple(
             "support.ticket_claimed",
             "support.ticket_created",
             "support.ticket_resolved",
+            "support.ticket_returned",
             "ticket.escalated",
         }
     )

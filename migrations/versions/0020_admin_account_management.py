@@ -161,6 +161,82 @@ $$
 """
 
 
+# P2: atomic return of an escalated ticket to Support (ADM-05 #9-10). The originating agent is
+# re-evaluated inside the transaction: still an active support_agent -> that agent and
+# in_progress; otherwise unassigned and open. Status, assignment, ownership and the activity
+# row change together or not at all. Result codes: ok, actor_not_authorized, invalid_reason,
+# not_found, not_escalated, not_owner.
+RETURN_ESCALATED_TICKET_PROCEDURE = """
+CREATE PROCEDURE sp_admin_return_escalated_ticket(
+    IN p_admin_id bigint,
+    IN p_ticket_id bigint,
+    IN p_reason text,
+    INOUT p_result text DEFAULT NULL,
+    INOUT p_new_status text DEFAULT NULL,
+    INOUT p_new_assignee bigint DEFAULT NULL
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_ticket support_ticket%ROWTYPE;
+    v_reason text;
+    v_origin_eligible boolean;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM app_user u JOIN role r ON r.id = u.role_id
+        WHERE u.id = p_admin_id AND u.is_active AND r.name = 'admin'
+    ) THEN
+        p_result := 'actor_not_authorized';
+        RETURN;
+    END IF;
+    v_reason := btrim(coalesce(p_reason, ''));
+    IF v_reason = '' OR char_length(v_reason) > 4000 THEN
+        p_result := 'invalid_reason';
+        RETURN;
+    END IF;
+    SELECT * INTO v_ticket FROM support_ticket WHERE id = p_ticket_id FOR UPDATE;
+    IF NOT FOUND THEN
+        p_result := 'not_found';
+        RETURN;
+    END IF;
+    IF v_ticket.status <> 'escalated' THEN
+        p_result := 'not_escalated';
+        RETURN;
+    END IF;
+    IF v_ticket.admin_owner_user_id IS DISTINCT FROM p_admin_id THEN
+        p_result := 'not_owner';
+        RETURN;
+    END IF;
+    SELECT EXISTS (
+        SELECT 1 FROM app_user u JOIN role r ON r.id = u.role_id
+        WHERE u.id = v_ticket.originating_support_agent_id
+          AND u.is_active AND r.name = 'support_agent'
+    ) INTO v_origin_eligible;
+    IF v_origin_eligible THEN
+        p_new_status := 'in_progress';
+        p_new_assignee := v_ticket.originating_support_agent_id;
+    ELSE
+        p_new_status := 'open';
+        p_new_assignee := NULL;
+    END IF;
+    UPDATE support_ticket
+    SET status = p_new_status,
+        assigned_staff_user_id = p_new_assignee,
+        admin_owner_user_id = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = p_ticket_id;
+    INSERT INTO support_ticket_activity (
+        ticket_id, actor_user_id, event_type, previous_status, new_status,
+        previous_assignee_user_id, new_assignee_user_id, internal_reason
+    ) VALUES (
+        p_ticket_id, p_admin_id, 'ticket_returned', 'escalated', p_new_status,
+        v_ticket.assigned_staff_user_id, p_new_assignee, v_reason
+    );
+    p_result := 'ok';
+END;
+$$
+"""
+
+
 def upgrade() -> None:
     # A staff session remembers the role it was issued for, so a role change can never carry
     # an old (possibly MFA-verified) session over to different authority (SEC-01, ADM-04).
@@ -268,8 +344,44 @@ def upgrade() -> None:
     op.execute(REVOKE_SESSIONS_TRIGGER)
     op.execute(SET_ACCOUNT_SUSPENSION_PROCEDURE)
 
+    # ADM-05: an administrator claims an escalated case without displacing the originating
+    # agent (kept in assigned_staff_user_id / originating_support_agent_id for the return).
+    op.add_column(
+        "support_ticket", sa.Column("admin_owner_user_id", sa.BigInteger(), nullable=True)
+    )
+    op.create_foreign_key(
+        "fk_support_ticket_admin_owner_user_id_app_user",
+        "support_ticket",
+        "app_user",
+        ["admin_owner_user_id"],
+        ["id"],
+        ondelete="RESTRICT",
+    )
+    op.create_check_constraint(
+        "admin_owner_only_when_escalated",
+        "support_ticket",
+        "admin_owner_user_id IS NULL OR status = 'escalated'",
+    )
+    op.create_index(
+        "ix_support_ticket_escalated_queue",
+        "support_ticket",
+        ["created_at", "id"],
+        postgresql_where=sa.text("status = 'escalated'"),
+    )
+    op.execute(RETURN_ESCALATED_TICKET_PROCEDURE)
+
 
 def downgrade() -> None:
+    op.execute(
+        "DROP PROCEDURE IF EXISTS sp_admin_return_escalated_ticket"
+        "(bigint, bigint, text, text, text, bigint)"
+    )
+    op.drop_index("ix_support_ticket_escalated_queue", table_name="support_ticket")
+    op.drop_constraint("admin_owner_only_when_escalated", "support_ticket", type_="check")
+    op.drop_constraint(
+        "fk_support_ticket_admin_owner_user_id_app_user", "support_ticket", type_="foreignkey"
+    )
+    op.drop_column("support_ticket", "admin_owner_user_id")
     op.execute(
         "DROP PROCEDURE IF EXISTS sp_admin_set_account_suspension"
         "(bigint, bigint, boolean, text, text)"

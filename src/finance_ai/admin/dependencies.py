@@ -14,6 +14,7 @@ from limits.strategies import FixedWindowRateLimiter
 from finance_ai.admin.accounts_service import AdminAccountService
 from finance_ai.admin.schemas import MAX_BIGINT
 from finance_ai.admin.staff_service import AdminStaffService
+from finance_ai.admin.tickets_service import AdminTicketService
 from finance_ai.audit.service import SecurityAuditWriter
 from finance_ai.auth.dependencies import get_credential_codec
 from finance_ai.auth.session_policy import SystemClock
@@ -67,6 +68,13 @@ def get_admin_staff_service() -> AdminStaffService:
 
 
 StaffService = Annotated[AdminStaffService, Depends(get_admin_staff_service)]
+
+
+def get_admin_ticket_service() -> AdminTicketService:
+    return AdminTicketService(get_session_factory(), SecurityAuditWriter(), SystemClock())
+
+
+TicketService = Annotated[AdminTicketService, Depends(get_admin_ticket_service)]
 
 
 def correlation_id(request: Request) -> str:

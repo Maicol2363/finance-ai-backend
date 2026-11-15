@@ -956,6 +956,19 @@ class RoleChangeNotAllowedError(AppError):
         )
 
 
+class EscalationClaimConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="escalation_claim_conflict",
+            title="Escalated case is no longer available",
+            detail=(
+                "Another administrator owns this case or it is no longer escalated. "
+                "Refresh the list and try again."
+            ),
+        )
+
+
 class AuditQueryInvalidError(AppError):
     def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
         super().__init__(

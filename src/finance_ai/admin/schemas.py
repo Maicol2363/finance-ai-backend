@@ -13,6 +13,15 @@ from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from finance_ai.support.schemas import (
+    CustomerMetadata,
+    CustomerTicket,
+    LongText,
+    SupportInput,
+    TicketHistory,
+    TicketMessage,
+)
+
 MAX_REASON_LENGTH: Final = 500
 MAX_BIGINT: Final = 9_223_372_036_854_775_807
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -113,3 +122,59 @@ class StaffAccountView(BaseModel):
 class ChangeStaffRoleRequest(StrictRequest):
     role: PortalStaffRole
     confirm: Literal[True]
+
+
+# --- ADM-05 -------------------------------------------------------------------------------------
+
+EscalationScope = Literal["all", "unclaimed", "mine"]
+
+
+class EscalatedTicketItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    subject: str
+    category: str
+    created_at: datetime
+    owner_admin_id: int | None
+    originating_agent_id: int | None
+    owned_by_me: bool
+
+
+class EscalationOrigin(BaseModel):
+    """Who escalated the case and whether Support can take it back directly."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: int | None
+    can_receive_return: bool
+
+
+class AdminCase(BaseModel):
+    """Administrative case context: staff-only reasons appear here and never to customers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ticket: CustomerTicket
+    customer: CustomerMetadata
+    messages: list[TicketMessage]
+    history: list[TicketHistory]
+    escalation_reason: str | None
+    owner_admin_id: int | None
+    owned_by_me: bool
+    originating_agent: EscalationOrigin
+
+
+class ClaimTicketRequest(StrictRequest):
+    """Claiming carries no data; the owner is always the authenticated administrator."""
+
+
+class ReturnTicketRequest(SupportInput):
+    reason: LongText
+
+
+class ReturnTicketResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["in_progress", "open"]
+    assigned_staff_user_id: int | None
