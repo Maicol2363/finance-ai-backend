@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from functools import lru_cache
+from os import getenv
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -154,11 +155,23 @@ def staff_mfa_cookie_name() -> str:
 def staff_cookie_settings(request: Request) -> tuple[bool, Literal["strict"], bool]:
     settings = get_settings()
     parsed = urlsplit(str(request.base_url))
-    if settings.environment == "production" and parsed.scheme != "https":
-        raise StaffOriginDeniedError()
-    if parsed.scheme == "https":
+    # The configured default run.app endpoint only accepts HTTPS at Google's edge.
+    # Cloud Run terminates TLS before forwarding to ASGI. Keep this exception scoped
+    # to that managed endpoint without using client-provided forwarding headers.
+    managed_tls = (
+        settings.environment == "production"
+        and parsed.scheme == "http"
+        and bool(getenv("K_SERVICE"))
+        and settings.staff_cloud_run_host is not None
+        and parsed.netloc == settings.staff_cloud_run_host
+    )
+    if parsed.scheme == "https" or managed_tls:
         return True, "strict", True
-    if not settings.staff_local_cookie_exception_enabled or not _is_loopback_host(parsed.hostname):
+    if (
+        settings.environment == "production"
+        or not settings.staff_local_cookie_exception_enabled
+        or not _is_loopback_host(parsed.hostname)
+    ):
         raise StaffOriginDeniedError()
     return False, "strict", True
 

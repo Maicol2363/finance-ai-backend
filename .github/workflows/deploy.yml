@@ -100,7 +100,10 @@ jobs:
         run: |
           origin=$(gcloud run services describe finance-staff-web --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')
           [[ "$origin" =~ ^https://[a-z0-9.-]+\.run\.app$ ]]
-          origins=$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format=json | jq -ce --arg origin "$origin" '
+          service=$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format=json)
+          api_url=$(jq -er '.status.url' <<< "$service")
+          [[ "$api_url" =~ ^https://[a-z0-9.-]+\.run\.app$ ]]
+          origins=$(jq -ce --arg origin "$origin" '
             [.spec.template.spec.containers[0].env[]? | select(.name == "FINANCE_AI_CORS_ALLOWED_ORIGINS")] as $matches
             | if ($matches | length) == 0 then []
               else ($matches[0].value // error("Existing allowlist has no literal value") | fromjson)
@@ -109,9 +112,10 @@ jobs:
               else error("Invalid existing CORS allowlist")
               end
             | if index($origin) == null then . + [$origin] else . end
-          ')
+          ' <<< "$service")
           [[ "$origins" != *'|'* ]]
           echo "STAFF_ORIGIN=$origin" >> "$GITHUB_ENV"
+          echo "STAFF_CLOUD_RUN_HOST=${api_url#https://}" >> "$GITHUB_ENV"
           echo "CORS_ALLOWED_ORIGINS=$origins" >> "$GITHUB_ENV"
 
       - name: Configure Docker authentication
@@ -146,7 +150,7 @@ jobs:
             --project="$PROJECT_ID" \
             --region="$REGION" \
             --image="$IMAGE" \
-            --update-env-vars "^|^FINANCE_AI_CORS_ALLOWED_ORIGINS=$CORS_ALLOWED_ORIGINS" \
+            --update-env-vars "^|^FINANCE_AI_CORS_ALLOWED_ORIGINS=$CORS_ALLOWED_ORIGINS|FINANCE_AI_STAFF_CLOUD_RUN_HOST=$STAFF_CLOUD_RUN_HOST" \
             --update-secrets "FINANCE_AI_STAFF_MFA_ENCRYPTION_KEY=finance-ai-staff-mfa-encryption-key:$MFA_SECRET_VERSION" \
             --quiet
 
