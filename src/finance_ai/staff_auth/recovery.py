@@ -116,8 +116,12 @@ class StaffRecoveryService:
         hashes = [hash_recovery_code(code) for code in codes]
         try:
             with self._session_factory() as session, session.begin():
+                # Eager joins on AppUser cannot be locked; lock only the account row.
                 account = session.execute(
-                    select(AppUser).where(AppUser.id == user_id).with_for_update()
+                    select(AppUser)
+                    .options(lazyload("*"))
+                    .where(AppUser.id == user_id)
+                    .with_for_update(of=AppUser)
                 ).scalar_one()
                 if not self._password_hasher.verify_real_or_dummy(account.password_hash, password):
                     raise PasswordConfirmationInvalidError()

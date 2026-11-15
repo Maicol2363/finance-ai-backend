@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -1174,3 +1175,161 @@ def test_adm05_audit_records_the_transitions_without_conversation_text() -> None
         "support.ticket_returned",
     ]
     assert all(event[3] == str(ticket_id) for event in admin_events)
+
+
+# --- SEC-01 recovery on PostgreSQL: row locks, single use, session revocation ------------------
+
+RECOVERY_PASSWORD = "Recovery-passphrase-2026"
+
+
+def recovery_world():  # type: ignore[no-untyped-def]
+    from finance_ai.audit.service import SecurityAuditWriter
+    from finance_ai.auth.credentials import CredentialCodec
+    from finance_ai.auth.dependencies import get_password_hasher
+    from finance_ai.auth.session_policy import SystemClock
+    from finance_ai.db.models.admin import AdminTotpFactor
+    from finance_ai.staff_auth.recovery import StaffRecoveryService
+    from tests.unit.test_staff_auditor_auth_service import build_policy
+
+    hasher = get_password_hasher()
+    policy = build_policy()
+    admin = make_user("admin", "admin@example.test")
+    with get_session_factory()() as session:
+        session.execute(
+            text("UPDATE app_user SET password_hash = :hash WHERE id = :id"),
+            {"hash": hasher.hash(RECOVERY_PASSWORD), "id": admin},
+        )
+        secret = policy.verifier.new_secret()
+        session.add(
+            AdminTotpFactor(
+                admin_user_id=admin,
+                secret_ciphertext=policy.cipher.encrypt(secret, user_id=admin),
+                state="active",
+                activated_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+    service = StaffRecoveryService(
+        session_factory=get_session_factory(),
+        password_hasher=hasher,
+        credential_codec=CredentialCodec(),
+        clock=SystemClock(),
+        audit_writer=SecurityAuditWriter(),
+        mfa=policy,
+    )
+    return admin, secret, service
+
+
+def test_recovery_codes_are_issued_on_postgres_with_hashes_only() -> None:
+    from finance_ai.core.errors import PasswordConfirmationInvalidError
+
+    admin, _secret, service = recovery_world()
+
+    with pytest.raises(PasswordConfirmationInvalidError):
+        service.issue_recovery_codes(admin, "wrong-password", correlation_id="c0")
+    assert scalar("SELECT count(*) FROM staff_mfa_recovery_code") == 0
+
+    codes = service.issue_recovery_codes(admin, RECOVERY_PASSWORD, correlation_id="c1")
+    replaced = service.issue_recovery_codes(admin, RECOVERY_PASSWORD, correlation_id="c2")
+
+    assert len(codes) == len(replaced) == 10 and set(codes).isdisjoint(replaced)
+    assert scalar("SELECT count(*) FROM staff_mfa_recovery_code WHERE consumed_at IS NULL") == 10
+    assert scalar("SELECT count(*) FROM staff_mfa_recovery_code") == 20
+    stored = str(audit_events())
+    assert replaced[0] not in stored and "recovery_codes_issued" in stored
+
+
+def test_recovery_code_resets_the_authenticator_and_revokes_sessions_on_postgres() -> None:
+    from finance_ai.core.errors import MfaRecoveryInvalidError
+
+    admin, _secret, service = recovery_world()
+    session_id = make_session(admin, "r")
+    codes = service.issue_recovery_codes(admin, RECOVERY_PASSWORD, correlation_id="c1")
+
+    challenge = service.reset_authenticator(
+        email="admin@example.test",
+        password=RECOVERY_PASSWORD,
+        recovery_code=codes[0],
+        totp_code=None,
+        correlation_id="c2",
+    )
+
+    assert challenge.enrollment_required is True
+    assert (
+        scalar("SELECT state FROM admin_totp_factor WHERE admin_user_id = :id", id=admin)
+        == "disabled"
+    )
+    assert (
+        scalar("SELECT revocation_reason FROM user_session WHERE id = :id", id=session_id)
+        == "mfa_reset"
+    )
+    assert scalar("SELECT count(*) FROM staff_mfa_recovery_code WHERE consumed_at IS NULL") == 0
+    assert scalar("SELECT count(*) FROM staff_mfa_challenge WHERE consumed_at IS NULL") == 1
+    assert ("auth.mfa_recovered", "success") in [event[:2] for event in audit_events()]
+    with pytest.raises(MfaRecoveryInvalidError):
+        service.reset_authenticator(
+            email="admin@example.test",
+            password=RECOVERY_PASSWORD,
+            recovery_code=codes[0],
+            totp_code=None,
+            correlation_id="c3",
+        )
+
+
+def test_authenticator_code_replaces_the_authenticator_on_postgres() -> None:
+    import pyotp
+
+    admin, secret, service = recovery_world()
+
+    challenge = service.reset_authenticator(
+        email="admin@example.test",
+        password=RECOVERY_PASSWORD,
+        recovery_code=None,
+        totp_code=pyotp.TOTP(secret).now(),
+        correlation_id="c1",
+    )
+
+    assert challenge.enrollment_required is True
+    assert (
+        scalar("SELECT state FROM admin_totp_factor WHERE admin_user_id = :id", id=admin)
+        == "disabled"
+    )
+    assert ("auth.mfa_replaced", "success") in [event[:2] for event in audit_events()]
+
+
+def test_a_recovery_code_resets_exactly_once_under_concurrency() -> None:
+    from finance_ai.core.errors import MfaRecoveryInvalidError
+
+    admin, _secret, service = recovery_world()
+    codes = service.issue_recovery_codes(admin, RECOVERY_PASSWORD, correlation_id="c1")
+    barrier = threading.Barrier(4)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def attempt(index: int) -> None:
+        barrier.wait(timeout=10)
+        try:
+            service.reset_authenticator(
+                email="admin@example.test",
+                password=RECOVERY_PASSWORD,
+                recovery_code=codes[1],
+                totp_code=None,
+                correlation_id=f"c-{index}",
+            )
+            result = "reset"
+        except MfaRecoveryInvalidError:
+            result = "rejected"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=attempt, args=(index,)) for index in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(outcomes) == ["rejected", "rejected", "rejected", "reset"]
+    assert (
+        scalar("SELECT count(*) FROM security_audit_event WHERE event_type = 'auth.mfa_recovered'")
+        == 1
+    )
