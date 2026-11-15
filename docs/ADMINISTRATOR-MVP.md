@@ -166,8 +166,15 @@ Además de las pruebas automáticas, el flujo se comprobó contra el servidor y 
   `dashboard_spending_summary_390x844.png`, 3,99 % de píxeles; no hay cambios de código Flutter en
   estas ramas) y cobertura de líneas 86,17 %. Prueba nativa de humo de Windows: 4 de 5 pasan; falla
   `protects Home and clears on Logout` por un toque que no alcanza el botón (arnés existente) y la
-  compilación normal se restauró. Android no se ejecutó (licencias del SDK pendientes y sin dispositivo
-  configurado en esta sesión).
+  compilación normal se restauró.
+* Cliente Flutter en un teléfono Android real (Samsung SM-A315G, Android 12; APK de depuración
+  instalado junto a las compilaciones de prueba existentes, puerto del teléfono redirigido por USB al
+  backend local con `adb reverse`, sin exponer nada a la red): mismo recorrido que en Windows con el
+  mismo resultado (inicio de sesión, Inicio, tickets, respuesta y resolución del administrador sin motivos
+  internos, bloqueo inmediato al suspender, rechazo genérico, acceso con sesión nueva tras reactivar y
+  rechazo genérico de la cuenta de administrador). Una consulta de soporte lanzada justo cuando la
+  pantalla se apagó falló con «No se pudo conectar con soporte» y funcionó al reintentar con la pantalla
+  encendida. La aplicación de prueba se desinstaló al terminar.
 * Modo producción sobre TLS real (certificado autofirmado local): prefijo `__Host-`, `Secure`,
   `HttpOnly`, `SameSite=Strict`, sin `Domain`, rechazo de HTTP plano, de orígenes fuera de la lista,
   de `Authorization` y de tipos de contenido que no sean JSON, y fallo cerrado sin clave MFA
