@@ -24,7 +24,12 @@ from finance_ai.core.errors import (
     StaffSessionExpiredError,
     StaffSessionInvalidError,
 )
-from finance_ai.core.roles import ADMIN_ROLE, MFA_REQUIRED_ROLES, STAFF_PORTAL_ROLES
+from finance_ai.core.roles import (
+    ADMIN_ROLE,
+    MFA_REQUIRED_ROLES,
+    PORTAL_ASSIGNABLE_STAFF_ROLES,
+    STAFF_PORTAL_ROLES,
+)
 from finance_ai.db.models.admin import AdminTotpFactor, StaffInvitation, StaffMfaChallenge
 from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.reference import Currency
@@ -917,8 +922,10 @@ def staff_activation_is_authoritative(session: Session, user: AppUser, role_name
                 StaffInvitation.activated_user_id == user.id,
                 StaffInvitation.consumed_at.is_not(None),
                 StaffInvitation.email == user.email,
-                StaffInvitation.role_id == user.role_id,
-                Role.name.in_(STAFF_PORTAL_ROLES),
+                # The invitation proves the account was provisioned through the portal; the
+                # account's current role (changed by ADM-04) is checked by the caller. The
+                # invitation itself can only ever name a portal-assignable role.
+                Role.name.in_(PORTAL_ASSIGNABLE_STAFF_ROLES),
             )
             .limit(1)
         )

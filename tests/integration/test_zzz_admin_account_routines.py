@@ -605,3 +605,192 @@ def test_service_concurrent_mutual_suspension_reports_the_last_administrator_gua
     assert outcomes == {"one": "ok", "two": "last_admin"}
     assert scalar("SELECT is_active FROM app_user WHERE id = :id", id=first) is True
     assert ("account.suspended", "denied") in [event[:2] for event in audit_events()]
+
+
+# --- ADM-03 / ADM-04 on PostgreSQL: single use under concurrency, role change -----------------
+
+
+def staff_services():  # type: ignore[no-untyped-def]
+    from datetime import timedelta
+
+    from finance_ai.admin.staff_service import AdminStaffService
+    from finance_ai.audit.service import SecurityAuditWriter
+    from finance_ai.auth.credentials import CredentialCodec
+    from finance_ai.auth.dependencies import get_password_hasher, get_unsafe_password_provider
+    from finance_ai.auth.session_policy import SystemClock
+    from finance_ai.staff_auth.activation import StaffActivationService
+
+    codec, clock, audit = CredentialCodec(), SystemClock(), SecurityAuditWriter()
+    factory = get_session_factory()
+    staff = AdminStaffService(factory, audit, codec, clock, invitation_lifetime=timedelta(hours=48))
+    activation = StaffActivationService(
+        session_factory=factory,
+        password_hasher=get_password_hasher(),
+        unsafe_passwords=get_unsafe_password_provider(),
+        credential_codec=codec,
+        clock=clock,
+        audit_writer=audit,
+    )
+    return staff, activation
+
+
+STRONG_PASSWORD = "a-long-and-unusual-passphrase"
+
+
+def test_concurrent_activation_consumes_a_single_use_token_exactly_once() -> None:
+    from finance_ai.core.errors import StaffActivationInvalidError
+
+    admin = make_user("admin", "admin@example.test")
+    staff, activation = staff_services()
+    token = staff.create_invitation(
+        actor_id=admin, email="agent@example.com", role="support_agent", correlation_id="c"
+    ).activation_token
+    barrier = threading.Barrier(4)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def attempt(index: int) -> None:
+        barrier.wait(timeout=10)
+        try:
+            activation.activate(
+                token=token,
+                password=STRONG_PASSWORD,
+                password_confirmation=STRONG_PASSWORD,
+                correlation_id=f"c-{index}",
+            )
+            result = "activated"
+        except StaffActivationInvalidError:
+            result = "rejected"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=attempt, args=(index,)) for index in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(outcomes) == ["activated", "rejected", "rejected", "rejected"]
+    assert scalar("SELECT count(*) FROM app_user WHERE email = 'agent@example.com'") == 1
+    assert (
+        scalar("SELECT count(*) FROM security_audit_event WHERE event_type = 'staff.activated'")
+        == 1
+    )
+    assert (
+        scalar(
+            "SELECT activated_user_id IS NOT NULL AND consumed_at IS NOT NULL FROM staff_invitation"
+        )
+        is True
+    )
+
+
+def test_concurrent_invitations_for_one_email_create_a_single_pending_invitation() -> None:
+    from finance_ai.core.errors import StaffEmailUnavailableError
+
+    admin = make_user("admin", "admin@example.test")
+    staff, _activation = staff_services()
+    barrier = threading.Barrier(4)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def attempt(index: int) -> None:
+        barrier.wait(timeout=10)
+        try:
+            staff.create_invitation(
+                actor_id=admin,
+                email="dup@example.com",
+                role="security_auditor",
+                correlation_id=f"c-{index}",
+            )
+            result = "created"
+        except StaffEmailUnavailableError:
+            result = "refused"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=attempt, args=(index,)) for index in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(outcomes) == ["created", "refused", "refused", "refused"]
+    assert scalar("SELECT count(*) FROM staff_invitation WHERE email = 'dup@example.com'") == 1
+
+
+def test_activated_staff_role_change_revokes_sessions_and_audits_on_postgres() -> None:
+    admin = make_user("admin", "admin@example.test")
+    staff, activation = staff_services()
+    token = staff.create_invitation(
+        actor_id=admin, email="mover@example.com", role="support_agent", correlation_id="c1"
+    ).activation_token
+    activation.activate(
+        token=token,
+        password=STRONG_PASSWORD,
+        password_confirmation=STRONG_PASSWORD,
+        correlation_id="c2",
+    )
+    mover = int(scalar("SELECT id FROM app_user WHERE email = 'mover@example.com'"))  # type: ignore[arg-type]
+    session_id = make_session(mover, "m")
+
+    view = staff.change_role(
+        actor_id=admin, staff_id=mover, new_role="security_auditor", correlation_id="c3"
+    )
+
+    assert view.role == "security_auditor"
+    assert (
+        scalar("SELECT revocation_reason FROM user_session WHERE id = :id", id=session_id)
+        == "role_changed"
+    )
+    last = audit_events()[-1]
+    assert last[0] == "role.changed" and last[4] == {
+        "previous_role": "support_agent",
+        "new_role": "security_auditor",
+    }
+    assert (
+        scalar(
+            "SELECT count(*) FROM app_user WHERE id = :id AND role_id = "
+            "(SELECT id FROM role WHERE name = 'security_auditor')",
+            id=mover,
+        )
+        == 1
+    )
+
+
+def test_a_used_or_expired_invitation_cannot_be_reused_after_commit() -> None:
+    from finance_ai.core.errors import StaffActivationInvalidError
+
+    admin = make_user("admin", "admin@example.test")
+    staff, activation = staff_services()
+    token = staff.create_invitation(
+        actor_id=admin, email="once@example.com", role="support_agent", correlation_id="c1"
+    ).activation_token
+    activation.activate(
+        token=token,
+        password=STRONG_PASSWORD,
+        password_confirmation=STRONG_PASSWORD,
+        correlation_id="c2",
+    )
+
+    with pytest.raises(StaffActivationInvalidError):
+        activation.activate(
+            token=token,
+            password="another-long-passphrase",
+            password_confirmation="another-long-passphrase",
+            correlation_id="c3",
+        )
+    with get_session_factory()() as session:
+        session.execute(
+            text(
+                "UPDATE staff_invitation SET consumed_at = NULL, activated_user_id = NULL, "
+                "expires_at = created_at + interval '1 second' WHERE email = 'once@example.com'"
+            )
+        )
+        session.commit()
+    with pytest.raises(StaffActivationInvalidError):
+        activation.activate(
+            token=token,
+            password=STRONG_PASSWORD,
+            password_confirmation=STRONG_PASSWORD,
+            correlation_id="c4",
+        )

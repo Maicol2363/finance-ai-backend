@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from functools import lru_cache
 from typing import Annotated
 
@@ -12,7 +13,11 @@ from limits.strategies import FixedWindowRateLimiter
 
 from finance_ai.admin.accounts_service import AdminAccountService
 from finance_ai.admin.schemas import MAX_BIGINT
+from finance_ai.admin.staff_service import AdminStaffService
 from finance_ai.audit.service import SecurityAuditWriter
+from finance_ai.auth.dependencies import get_credential_codec
+from finance_ai.auth.session_policy import SystemClock
+from finance_ai.core.config import get_settings
 from finance_ai.core.errors import AdminRateLimitedError
 from finance_ai.db.session import get_session_factory
 from finance_ai.staff_auth.dependencies import get_admin_user
@@ -49,6 +54,19 @@ def get_admin_account_service() -> AdminAccountService:
 
 
 AccountService = Annotated[AdminAccountService, Depends(get_admin_account_service)]
+
+
+def get_admin_staff_service() -> AdminStaffService:
+    return AdminStaffService(
+        get_session_factory(),
+        SecurityAuditWriter(),
+        get_credential_codec(),
+        SystemClock(),
+        invitation_lifetime=timedelta(hours=get_settings().staff_invitation_hours),
+    )
+
+
+StaffService = Annotated[AdminStaffService, Depends(get_admin_staff_service)]
 
 
 def correlation_id(request: Request) -> str:

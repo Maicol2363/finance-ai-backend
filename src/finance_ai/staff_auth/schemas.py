@@ -90,3 +90,13 @@ class StaffMfaVerifyRequest(BaseModel):
 
     # Six digits are enforced by the verifier; the value is never echoed in errors or logs.
     code: SecretStr = Field(min_length=6, max_length=6, json_schema_extra={"writeOnly": True})
+
+
+class StaffActivationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: SecretStr = Field(min_length=1, max_length=64, json_schema_extra={"writeOnly": True})
+    password: SecretStr = Field(min_length=1, max_length=128, json_schema_extra={"writeOnly": True})
+    password_confirmation: SecretStr = Field(
+        min_length=1, max_length=128, json_schema_extra={"writeOnly": True}
+    )

@@ -1796,6 +1796,30 @@
         "title": "CategoryUpdateRequest",
         "type": "object"
       },
+      "ChangeStaffRoleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "support_agent",
+              "security_auditor"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "confirm"
+        ],
+        "title": "ChangeStaffRoleRequest",
+        "type": "object"
+      },
       "Clarification": {
         "additionalProperties": false,
         "description": "The single short question asked when the text is genuinely ambiguous.",
@@ -2009,6 +2033,31 @@
           "name"
         ],
         "title": "CreateIncomeSourceRequest",
+        "type": "object"
+      },
+      "CreateStaffInvitationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "support_agent",
+              "security_auditor"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "title": "CreateStaffInvitationRequest",
         "type": "object"
       },
       "CurrencyResponse": {
@@ -4403,6 +4452,99 @@
         "title": "ScheduleType",
         "type": "string"
       },
+      "StaffAccountView": {
+        "additionalProperties": false,
+        "properties": {
+          "account_type": {
+            "const": "login_account",
+            "default": "login_account",
+            "title": "Account Type",
+            "type": "string"
+          },
+          "assignable_roles": {
+            "items": {
+              "enum": [
+                "support_agent",
+                "security_auditor"
+              ],
+              "type": "string"
+            },
+            "title": "Assignable Roles",
+            "type": "array"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "registered_at": {
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "suspended"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "status",
+          "registered_at",
+          "assignable_roles"
+        ],
+        "title": "StaffAccountView",
+        "type": "object"
+      },
+      "StaffActivationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "password_confirmation": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password Confirmation",
+            "type": "string",
+            "writeOnly": true
+          },
+          "token": {
+            "format": "password",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "password_confirmation"
+        ],
+        "title": "StaffActivationRequest",
+        "type": "object"
+      },
       "StaffConversation": {
         "properties": {
           "customer": {
@@ -4433,6 +4575,46 @@
           "history"
         ],
         "title": "StaffConversation",
+        "type": "object"
+      },
+      "StaffInvitationCreated": {
+        "additionalProperties": false,
+        "description": "Returned once to the administrator; only the token hash is stored (D1).",
+        "properties": {
+          "activation_token": {
+            "title": "Activation Token",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "invitation_id": {
+            "title": "Invitation Id",
+            "type": "integer"
+          },
+          "role": {
+            "enum": [
+              "support_agent",
+              "security_auditor"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "email",
+          "role",
+          "expires_at",
+          "activation_token"
+        ],
+        "title": "StaffInvitationCreated",
         "type": "object"
       },
       "StaffLoginRequest": {
@@ -11467,6 +11649,307 @@
         ]
       }
     },
+    "/api/v1/staff/admin/staff/invitations": {
+      "post": {
+        "description": "Creates an expiring, single-use invitation for a support agent or security auditor. The one-time activation token is returned once in this response and never stored in clear text; the invitee chooses their own password at activation. The admin role cannot be requested (an unknown or forged role is rejected).",
+        "operationId": "create_staff_invitation_api_v1_staff_admin_staff_invitations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStaffInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffInvitationCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Invite a Staff Member (ADM-03)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/staff/{staff_id}": {
+      "get": {
+        "operationId": "get_staff_account_api_v1_staff_admin_staff__staff_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Staff Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAccountView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Inspect a Staff Account Role (ADM-04)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/staff/{staff_id}/role": {
+      "post": {
+        "description": "Switches a staff account between support_agent and security_auditor after explicit confirmation. Own role, administrators and customers cannot be changed here. The live sessions of that person are revoked and the change is audited with the previous and new role.",
+        "operationId": "change_staff_role_api_v1_staff_admin_staff__staff_id__role_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Staff Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeStaffRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAccountView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Change a Staff Role (ADM-04)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
     "/api/v1/staff/audit/catalog": {
       "get": {
         "operationId": "audit_catalog_api_v1_staff_audit_catalog_get",
@@ -12348,6 +12831,81 @@
         "summary": "Security Activity Summary",
         "tags": [
           "Security Auditor"
+        ]
+      }
+    },
+    "/api/v1/staff/auth/activate": {
+      "post": {
+        "description": "Public and rate limited. Consumes a single-use invitation token and creates the staff account with the password the invitee chooses. Unknown, expired and replayed tokens all return the same 400. No session is issued; sign in afterwards.",
+        "operationId": "staff_activate_api_v1_staff_auth_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffActivationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Activate an Invited Staff Account (ADM-03)",
+        "tags": [
+          "Staff browser authentication"
         ]
       }
     },

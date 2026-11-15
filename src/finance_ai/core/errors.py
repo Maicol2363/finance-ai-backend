@@ -906,6 +906,56 @@ class AccountStateConflictError(AppError):
         )
 
 
+class StaffEmailUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="staff_email_unavailable",
+            title="Email is unavailable",
+            detail="An account or a pending invitation already uses this email address.",
+            field_errors={"email": ["This email address is not available."]},
+        )
+
+
+class StaffActivationInvalidError(AppError):
+    """One generic outcome for unknown, expired, replayed or malformed activation links."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status=400,
+            code="activation_invalid",
+            title="Activation link is not valid",
+            detail=(
+                "This activation link is invalid, expired or already used. "
+                "Ask an administrator for a new one."
+            ),
+        )
+
+
+class ActivationPasswordInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="activation_password_invalid",
+            title="Password is not acceptable",
+            detail="Choose a different password and try again.",
+            field_errors=field_errors,
+        )
+
+
+class RoleChangeNotAllowedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="role_change_not_allowed",
+            title="Role change not allowed",
+            detail=(
+                "Only support agents and security auditors can be switched between those two "
+                "roles here. Administrator and customer roles are not changed through the portal."
+            ),
+        )
+
+
 class AuditQueryInvalidError(AppError):
     def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
         super().__init__(

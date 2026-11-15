@@ -14,13 +14,18 @@ from finance_ai.admin.dependencies import (
     AccountIdPath,
     AccountService,
     ReadingAdmin,
+    StaffService,
     WritingAdmin,
     correlation_id,
 )
 from finance_ai.admin.schemas import (
     MAX_BIGINT,
     AdminAccount,
+    ChangeStaffRoleRequest,
+    CreateStaffInvitationRequest,
     ReactivateAccountRequest,
+    StaffAccountView,
+    StaffInvitationCreated,
     SuspendAccountRequest,
 )
 from finance_ai.core.errors import ProblemResponse
@@ -125,4 +130,80 @@ def reactivate_account(
     del payload
     return service.reactivate(
         actor_id=admin.id, target_id=account_id, correlation_id=correlation_id(request)
+    )
+
+
+@router.post(
+    "/staff/invitations",
+    status_code=201,
+    response_model=StaffInvitationCreated,
+    summary="Invite a Staff Member (ADM-03)",
+    description=(
+        "Creates an expiring, single-use invitation for a support agent or security auditor. "
+        "The one-time activation token is returned once in this response and never stored in "
+        "clear text; the invitee chooses their own password at activation. The admin role "
+        "cannot be requested (an unknown or forged role is rejected)."
+    ),
+    responses={
+        **_COMMON_ERRORS,
+        409: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+    },
+)
+def create_staff_invitation(
+    payload: CreateStaffInvitationRequest,
+    request: Request,
+    admin: WritingAdmin,
+    service: StaffService,
+) -> StaffInvitationCreated:
+    return service.create_invitation(
+        actor_id=admin.id,
+        email=payload.email,
+        role=payload.role,
+        correlation_id=correlation_id(request),
+    )
+
+
+@router.get(
+    "/staff/{staff_id}",
+    response_model=StaffAccountView,
+    summary="Inspect a Staff Account Role (ADM-04)",
+    responses={**_COMMON_ERRORS, 404: {"model": ProblemResponse}},
+)
+def get_staff_account(
+    staff_id: AccountIdPath, admin: ReadingAdmin, service: StaffService
+) -> StaffAccountView:
+    del admin
+    return service.view(staff_id)
+
+
+@router.post(
+    "/staff/{staff_id}/role",
+    response_model=StaffAccountView,
+    summary="Change a Staff Role (ADM-04)",
+    description=(
+        "Switches a staff account between support_agent and security_auditor after explicit "
+        "confirmation. Own role, administrators and customers cannot be changed here. The "
+        "live sessions of that person are revoked and the change is audited with the previous "
+        "and new role."
+    ),
+    responses={
+        **_COMMON_ERRORS,
+        404: {"model": ProblemResponse},
+        409: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+    },
+)
+def change_staff_role(
+    staff_id: AccountIdPath,
+    payload: ChangeStaffRoleRequest,
+    request: Request,
+    admin: WritingAdmin,
+    service: StaffService,
+) -> StaffAccountView:
+    return service.change_role(
+        actor_id=admin.id,
+        staff_id=staff_id,
+        new_role=payload.role,
+        correlation_id=correlation_id(request),
     )

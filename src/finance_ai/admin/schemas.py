@@ -74,3 +74,42 @@ class SuspendAccountRequest(StrictRequest):
 
 class ReactivateAccountRequest(StrictRequest):
     confirm: Literal[True]
+
+
+# The only roles the ordinary portal may assign (ADM-03/ADM-04). ``admin`` and ``user`` are not
+# members of this Literal, so a forged role is a validation failure before any service runs.
+PortalStaffRole = Literal["support_agent", "security_auditor"]
+
+
+class CreateStaffInvitationRequest(StrictRequest):
+    email: str = Field(min_length=1, max_length=320)
+    role: PortalStaffRole
+
+
+class StaffInvitationCreated(BaseModel):
+    """Returned once to the administrator; only the token hash is stored (D1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invitation_id: int
+    email: str
+    role: PortalStaffRole
+    expires_at: datetime
+    activation_token: str
+
+
+class StaffAccountView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    email: str
+    role: str
+    status: AccountStatus
+    registered_at: datetime
+    account_type: Literal["login_account"] = "login_account"
+    assignable_roles: list[PortalStaffRole]
+
+
+class ChangeStaffRoleRequest(StrictRequest):
+    role: PortalStaffRole
+    confirm: Literal[True]

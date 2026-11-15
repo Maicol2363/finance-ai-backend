@@ -11,10 +11,12 @@ from finance_ai.auth.dependencies import get_session_rate_limiter
 from finance_ai.core.errors import ProblemResponse, StaffAccessDeniedError
 from finance_ai.core.rate_limit import AuthRateLimiter
 from finance_ai.core.roles import MFA_REQUIRED_ROLES
+from finance_ai.staff_auth.activation import StaffActivationService
 from finance_ai.staff_auth.dependencies import (
     StaffCookieSettings,
     enforce_staff_mfa_limit,
     get_staff_access_user,
+    get_staff_activation_service,
     get_staff_recovery_service,
     get_staff_session_service,
     require_staff_cookie_transport,
@@ -24,6 +26,7 @@ from finance_ai.staff_auth.dependencies import (
 )
 from finance_ai.staff_auth.recovery import StaffRecoveryService
 from finance_ai.staff_auth.schemas import (
+    StaffActivationRequest,
     StaffLoginCommand,
     StaffLoginRequest,
     StaffMfaChallengeView,
@@ -475,6 +478,40 @@ def staff_recovery_codes(
         correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
     )
     return StaffRecoveryCodesView(recovery_codes=codes)
+
+
+@router.post(
+    "/activate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Activate an Invited Staff Account (ADM-03)",
+    description=(
+        "Public and rate limited. Consumes a single-use invitation token and creates the staff "
+        "account with the password the invitee chooses. Unknown, expired and replayed tokens "
+        "all return the same 400. No session is issued; sign in afterwards."
+    ),
+    responses={
+        400: {"model": ProblemResponse},
+        415: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+        429: {"model": ProblemResponse},
+        503: {"model": ProblemResponse},
+    },
+)
+def staff_activate(
+    payload: StaffActivationRequest,
+    request: Request,
+    _: Annotated[None, Depends(require_staff_request_boundary)],
+    _limit: Annotated[None, Depends(enforce_staff_mfa_limit)],
+    service: Annotated[StaffActivationService, Depends(get_staff_activation_service)],
+) -> Response:
+    service.activate(
+        token=payload.token.get_secret_value(),
+        password=payload.password.get_secret_value(),
+        password_confirmation=payload.password_confirmation.get_secret_value(),
+        correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
