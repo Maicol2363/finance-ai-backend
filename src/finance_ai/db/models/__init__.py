@@ -1,6 +1,6 @@
 from finance_ai.capture.models import TextCaptureProposalModel
 from finance_ai.db.models.accounts import Account
-from finance_ai.db.models.admin import AdminTotpFactor, StaffInvitation
+from finance_ai.db.models.admin import AdminTotpFactor, StaffInvitation, StaffMfaChallenge
 from finance_ai.db.models.audit import SecurityAuditEvent
 from finance_ai.db.models.budgets import Budget, SpendingLimit
 from finance_ai.db.models.catalogs import (
@@ -41,6 +41,7 @@ __all__ = [
     "SecurityAuditEvent",
     "SpendingLimit",
     "StaffInvitation",
+    "StaffMfaChallenge",
     "Store",
     "Subcategory",
     "SupportTicket",

@@ -15,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from finance_ai.capture.models import TextCaptureProposalModel
 from finance_ai.db.base import Base
+from finance_ai.db.models.audit import SecurityAuditEvent
 from finance_ai.db.models.transactions import FinancialTransaction
 
 
@@ -36,3 +37,19 @@ def drafts_engine() -> Iterator[Engine]:
 @pytest.fixture
 def session_factory(drafts_engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=drafts_engine, autoflush=False, expire_on_commit=False)
+
+
+@pytest.fixture
+def audit_engine() -> Iterator[Engine]:
+    """In-memory database holding only the append-only security event table."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine, tables=[cast("Table", SecurityAuditEvent.__table__)])
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def audit_factory(audit_engine: Engine) -> sessionmaker[Session]:
+    return sessionmaker(bind=audit_engine, autoflush=False, expire_on_commit=False)

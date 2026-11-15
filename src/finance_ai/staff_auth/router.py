@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from finance_ai.auth.dependencies import get_session_rate_limiter
@@ -11,19 +12,24 @@ from finance_ai.core.errors import ProblemResponse
 from finance_ai.core.rate_limit import AuthRateLimiter
 from finance_ai.staff_auth.dependencies import (
     StaffCookieSettings,
+    enforce_staff_mfa_limit,
     get_staff_access_user,
     get_staff_session_service,
     require_staff_cookie_transport,
     require_staff_request_boundary,
     staff_cookie_names,
+    staff_mfa_cookie_name,
 )
 from finance_ai.staff_auth.schemas import (
     StaffLoginCommand,
     StaffLoginRequest,
+    StaffMfaChallengeView,
+    StaffMfaEnrollmentView,
+    StaffMfaVerifyRequest,
     StaffSessionUser,
     StaffSessionView,
 )
-from finance_ai.staff_auth.service import StaffSessionService
+from finance_ai.staff_auth.service import StaffMfaChallengeIssued, StaffSessionService
 
 router = APIRouter(prefix="/staff/auth", tags=["Staff browser authentication"])
 
@@ -80,6 +86,35 @@ def _set_session_cookies(
     )
 
 
+def _set_mfa_cookie(
+    response: Response,
+    raw_challenge: str,
+    expires_at: datetime,
+    cookie_settings: StaffCookieSettings,
+) -> None:
+    secure, same_site, http_only = cookie_settings
+    response.set_cookie(
+        staff_mfa_cookie_name(),
+        raw_challenge,
+        max_age=max(0, int((expires_at - datetime.now(UTC)).total_seconds())),
+        path="/",
+        secure=secure,
+        httponly=http_only,
+        samesite=same_site,
+    )
+
+
+def _clear_mfa_cookie(response: Response, cookie_settings: StaffCookieSettings) -> None:
+    secure, same_site, http_only = cookie_settings
+    response.delete_cookie(
+        staff_mfa_cookie_name(),
+        path="/",
+        secure=secure,
+        httponly=http_only,
+        samesite=same_site,
+    )
+
+
 def _clear_session_cookies(response: Response, cookie_settings: StaffCookieSettings) -> None:
     secure, same_site, http_only = cookie_settings
     for cookie_name in staff_cookie_names():
@@ -95,7 +130,13 @@ def _clear_session_cookies(response: Response, cookie_settings: StaffCookieSetti
 @router.post(
     "/login",
     response_model=StaffSessionView,
+    description=(
+        "Verifies the staff password. Support Agents receive a session (200). Accounts whose "
+        "role requires SEC-01 MFA (security_auditor) receive 202 with a short-lived, "
+        "HttpOnly challenge cookie and no staff authority until TOTP verification succeeds."
+    ),
     responses={
+        202: {"model": StaffMfaChallengeView},
         401: {"model": ProblemResponse},
         409: {"model": ProblemResponse},
         413: {"model": ProblemResponse},
@@ -113,13 +154,29 @@ def staff_login(
     cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
     service: Annotated[StaffSessionService, Depends(get_staff_session_service)],
     limiter: Annotated[AuthRateLimiter, Depends(get_session_rate_limiter)],
-) -> StaffSessionView:
+) -> StaffSessionView | JSONResponse:
     client_key = request.client.host if request.client is not None else "unknown"
     limiter.check_login(client_key=client_key, normalized_email=payload.email.strip().lower())
-    user, access, refresh, access_expires_at, idle_expires_at, absolute_expires_at = service.login(
+    outcome = service.login(
         StaffLoginCommand(email=payload.email, password=payload.password.get_secret_value()),
         correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
     )
+    if isinstance(outcome, StaffMfaChallengeIssued):
+        challenge_response = JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=StaffMfaChallengeView(
+                enrollment_required=outcome.enrollment_required,
+                challenge_expires_at=outcome.expires_at,
+            ).model_dump(mode="json"),
+        )
+        _set_mfa_cookie(
+            challenge_response,
+            outcome.raw_challenge,
+            outcome.expires_at,
+            cookie_settings,
+        )
+        return challenge_response
+    user, access, refresh, access_expires_at, idle_expires_at, absolute_expires_at = outcome
     _set_session_cookies(
         response,
         access=access,
@@ -237,4 +294,120 @@ def staff_logout(
     )
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     _clear_session_cookies(response, cookie_settings)
+    return response
+
+
+def _mfa_challenge_cookie(request: Request) -> str | None:
+    return request.cookies.get(staff_mfa_cookie_name())
+
+
+@router.post(
+    "/mfa/enrollment",
+    response_model=StaffMfaEnrollmentView,
+    summary="Start Staff Authenticator Enrollment",
+    description=(
+        "Inside a valid MFA challenge for an account without an active authenticator, creates "
+        "a pending TOTP factor and returns its QR code and secret once. The factor becomes "
+        "active only after a valid code is verified."
+    ),
+    responses={
+        401: {"model": ProblemResponse},
+        403: {"model": ProblemResponse},
+        409: {"model": ProblemResponse},
+        415: {"model": ProblemResponse},
+        429: {"model": ProblemResponse},
+        503: {"model": ProblemResponse},
+    },
+)
+def staff_mfa_enrollment(
+    payload: EmptyStaffRequest,
+    request: Request,
+    _: Annotated[None, Depends(require_staff_request_boundary)],
+    _transport: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
+    _limit: Annotated[None, Depends(enforce_staff_mfa_limit)],
+    service: Annotated[StaffSessionService, Depends(get_staff_session_service)],
+) -> StaffMfaEnrollmentView:
+    del payload
+    enrollment = service.start_mfa_enrollment(
+        _mfa_challenge_cookie(request),
+        correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
+    )
+    return StaffMfaEnrollmentView(
+        issuer=enrollment.issuer,
+        account_name=enrollment.account_name,
+        secret=enrollment.secret,
+        otpauth_uri=enrollment.otpauth_uri,
+        qr_svg_data_url=enrollment.qr_svg_data_url,
+    )
+
+
+@router.post(
+    "/mfa/verify",
+    response_model=StaffSessionView,
+    summary="Verify Staff Authenticator Code",
+    description=(
+        "Completes password-plus-TOTP sign-in. Rejects invalid, expired and previously "
+        "accepted codes; a successful verification issues an MFA-verified staff session."
+    ),
+    responses={
+        401: {"model": ProblemResponse},
+        403: {"model": ProblemResponse},
+        409: {"model": ProblemResponse},
+        415: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+        429: {"model": ProblemResponse},
+        503: {"model": ProblemResponse},
+    },
+)
+def staff_mfa_verify(
+    payload: StaffMfaVerifyRequest,
+    request: Request,
+    response: Response,
+    _: Annotated[None, Depends(require_staff_request_boundary)],
+    cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
+    _limit: Annotated[None, Depends(enforce_staff_mfa_limit)],
+    service: Annotated[StaffSessionService, Depends(get_staff_session_service)],
+) -> StaffSessionView:
+    user, access, refresh, access_expires_at, idle_expires_at, absolute_expires_at = (
+        service.verify_mfa(
+            _mfa_challenge_cookie(request),
+            payload.code.get_secret_value(),
+            correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
+        )
+    )
+    _clear_mfa_cookie(response, cookie_settings)
+    _set_session_cookies(
+        response,
+        access=access,
+        refresh=refresh,
+        access_expires_at=access_expires_at,
+        idle_expires_at=idle_expires_at,
+        cookie_settings=cookie_settings,
+    )
+    return _session_view(user, access_expires_at, idle_expires_at, absolute_expires_at)
+
+
+@router.post(
+    "/mfa/cancel",
+    summary="Cancel Staff MFA Challenge",
+    description="Invalidates the current MFA challenge, if any, and clears its cookie.",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    responses={
+        403: {"model": ProblemResponse},
+        415: {"model": ProblemResponse},
+        503: {"model": ProblemResponse},
+    },
+)
+def staff_mfa_cancel(
+    payload: EmptyStaffRequest,
+    request: Request,
+    _: Annotated[None, Depends(require_staff_request_boundary)],
+    cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
+    service: Annotated[StaffSessionService, Depends(get_staff_session_service)],
+) -> Response:
+    del payload
+    service.cancel_mfa(_mfa_challenge_cookie(request))
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _clear_mfa_cookie(response, cookie_settings)
     return response

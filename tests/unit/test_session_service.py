@@ -441,3 +441,38 @@ def test_mobile_logout_does_not_revoke_staff_browser_refresh_credential() -> Non
     service.logout(issued.renewable_credential)
 
     assert store.sessions[1].revoked_at is None
+
+
+def test_security_auditor_cannot_authenticate_to_the_customer_api() -> None:
+    service, store, _, hasher = make_service()
+    assert store.user is not None
+    store.user = AuthUserRecord(
+        id=store.user.id,
+        email=store.user.email,
+        password_hash=store.user.password_hash,
+        preferred_currency=store.user.preferred_currency,
+        is_active=True,
+        role_name="security_auditor",
+    )
+    with pytest.raises(InvalidCredentialsError) as denied:
+        login(service)
+    assert denied.value.code == "invalid_credentials"
+    assert hasher.verified_hashes == ["stored-hash"]
+    assert store.sessions == {}
+
+
+def test_customer_refresh_is_revoked_after_promotion_to_security_auditor() -> None:
+    service, store, _, _ = make_service()
+    issued = login(service)
+    assert store.user is not None
+    store.user = AuthUserRecord(
+        id=store.user.id,
+        email=store.user.email,
+        password_hash=store.user.password_hash,
+        preferred_currency=store.user.preferred_currency,
+        is_active=True,
+        role_name="security_auditor",
+    )
+    with pytest.raises(SessionInvalidError):
+        service.refresh(issued.renewable_credential)
+    assert store.sessions[1].revocation_reason == "authority_changed"

@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Index,
+    Integer,
     LargeBinary,
     String,
     func,
@@ -91,6 +92,35 @@ class AdminTotpFactor(Base):
     admin: Mapped[AppUser] = relationship(lazy="joined")
 
 
+class StaffMfaChallenge(Base):
+    """Short-lived, account-bound second-factor challenge with no privileged authority."""
+
+    __tablename__ = "staff_mfa_challenge"
+    __table_args__ = (
+        CheckConstraint("char_length(token_hash) = 64", name="token_hash_length"),
+        CheckConstraint("expires_at > created_at", name="expiry_after_creation"),
+        CheckConstraint(
+            "consumed_at IS NULL OR consumed_at >= created_at", name="consumption_after_creation"
+        ),
+        CheckConstraint("failed_attempts >= 0", name="failed_attempts_nonnegative"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+
+
 Index("ix_staff_invitation_email_created", StaffInvitation.email, StaffInvitation.created_at)
+Index(
+    "ix_staff_mfa_challenge_user_created", StaffMfaChallenge.user_id, StaffMfaChallenge.created_at
+)
 Index("ix_staff_invitation_expiry", StaffInvitation.expires_at)
 Index("ix_admin_totp_factor_user_state", AdminTotpFactor.admin_user_id, AdminTotpFactor.state)

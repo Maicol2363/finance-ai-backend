@@ -758,3 +758,153 @@ class SupportTicketStateConflictError(AppError):
             title="Ticket state conflict",
             detail="This operation is not allowed in the current ticket state.",
         )
+
+
+class MfaUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="mfa_unavailable",
+            title="Verification is temporarily unavailable",
+            detail="Privileged sign-in is temporarily unavailable. Please try again later.",
+        )
+
+
+class MfaChallengeInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="mfa_challenge_invalid",
+            title="Verification step is no longer valid",
+            detail="Sign in again with your email and password.",
+        )
+
+
+class MfaCodeInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="mfa_code_invalid",
+            title="Verification code rejected",
+            detail="The authenticator code is not valid. Wait for a new code and try again.",
+        )
+
+
+class MfaEnrollmentRequiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="mfa_enrollment_required",
+            title="Authenticator setup required",
+            detail="Set up your authenticator application before entering a code.",
+        )
+
+
+class MfaAlreadyEnrolledError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="mfa_already_enrolled",
+            title="Authenticator already configured",
+            detail="Use the code shown by your configured authenticator application.",
+        )
+
+
+class MfaRateLimitedError(AppError):
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            status=429,
+            code="mfa_rate_limited",
+            title="Too many verification attempts",
+            detail="Please wait before trying again.",
+            headers={"Retry-After": str(retry_after_seconds)},
+        )
+
+
+class AuditQueryInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="audit_query_invalid",
+            title="Audit query is invalid",
+            detail="Correct the highlighted filters and try again.",
+            field_errors=field_errors,
+        )
+
+
+class AuditPeriodTooLongError(AppError):
+    def __init__(self, max_days: int) -> None:
+        super().__init__(
+            status=422,
+            code="audit_period_too_long",
+            title="Reporting period is too long",
+            detail=f"Select a period of at most {max_days} days.",
+            field_errors={"end_date": [f"The period cannot exceed {max_days} days."]},
+        )
+
+
+class AuditEventNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="audit_event_not_found",
+            title="Security event not found",
+            detail="The requested security event is unavailable.",
+        )
+
+
+class AuditReportTooLargeError(AppError):
+    def __init__(self, *, matching_events: int, max_events: int) -> None:
+        super().__init__(
+            status=422,
+            code="audit_report_too_large",
+            title="Report selection is too large",
+            detail=(
+                f"The selection contains {matching_events} events and a report can include "
+                f"at most {max_events}. Narrow the period or add filters and try again."
+            ),
+        )
+
+
+class AuditReportGenerationError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=500,
+            code="audit_report_generation_failed",
+            title="Report could not be generated",
+            detail="The report could not be generated. No file was produced. Try again.",
+        )
+
+
+class AuditExportUnrecordedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="audit_export_unrecorded",
+            title="Report delivery blocked",
+            detail=(
+                "The report was not delivered because its export could not be recorded. "
+                "Try again later."
+            ),
+        )
+
+
+class AuditQueryUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="audit_query_unavailable",
+            title="Security events are temporarily unavailable",
+            detail="Security events could not be retrieved. This is not an empty result. Retry.",
+        )
+
+
+class AuditRateLimitedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=429,
+            code="audit_rate_limited",
+            title="Too many audit requests",
+            detail="Please wait before trying again.",
+            headers={"Retry-After": "60"},
+        )

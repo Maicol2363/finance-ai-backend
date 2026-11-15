@@ -11,6 +11,7 @@ from finance_ai.core.errors import (
     ServiceUnavailableError,
     SessionInvalidError,
 )
+from finance_ai.core.roles import CUSTOMER_API_DENIED_ROLES
 
 SessionUnitOfWorkFactory = Callable[[], SessionUnitOfWork]
 
@@ -41,7 +42,12 @@ class SessionService:
             password_hash,
             command.password,
         )
-        if snapshot is None or not snapshot.is_active or not password_matches:
+        if (
+            snapshot is None
+            or not snapshot.is_active
+            or not password_matches
+            or snapshot.role_name in CUSTOMER_API_DENIED_ROLES
+        ):
             raise InvalidCredentialsError
 
         now = self.clock.now()
@@ -54,6 +60,7 @@ class SessionService:
                 locked_user is None
                 or not locked_user.is_active
                 or locked_user.password_hash != snapshot.password_hash
+                or locked_user.role_name in CUSTOMER_API_DENIED_ROLES
             ):
                 raise InvalidCredentialsError
 
@@ -120,6 +127,7 @@ class SessionService:
             invalid_reason = self._invalid_refresh_reason(
                 session_revoked=session.revoked_at is not None,
                 user_active=session.user.is_active,
+                user_eligible=session.user.role_name not in CUSTOMER_API_DENIED_ROLES,
                 renewable_consumed=renewable.consumed_at is not None,
                 renewable_expired=renewable.expires_at <= now,
                 idle_expired=session.idle_expires_at <= now,
@@ -235,6 +243,7 @@ class SessionService:
         session_revoked: bool,
         user_active: bool,
         renewable_consumed: bool,
+        user_eligible: bool = True,
         renewable_expired: bool,
         idle_expired: bool,
         absolute_expired: bool,
@@ -243,6 +252,8 @@ class SessionService:
             return "revoked"
         if not user_active:
             return "user_inactive"
+        if not user_eligible:
+            return "authority_changed"
         if renewable_consumed:
             return "replay"
         if absolute_expired:
