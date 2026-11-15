@@ -136,12 +136,38 @@ uv run python scripts/seed_admin_demo.py
 
 Además de las pruebas automáticas, el flujo se comprobó contra el servidor y PostgreSQL reales:
 
-* `staff-web/e2e/adminReal.spec.ts` (Playwright con Chrome del sistema, en serie) recorre en un
-  navegador las rutas de cuentas, personal, casos escalados y seguridad con **dos administradores
-  reales** en contextos separados: carrera por reclamar un caso (gana exactamente uno), respuesta del
-  titular del caso, resolución, devolución a soporte, códigos de recuperación, recuperación y
-  reemplazo del autenticador, permisos por rol y suspensión mutua. Solo corre con
+* `staff-web/e2e/adminReal.spec.ts` (Playwright con Chrome del sistema, en serie, 10 recorridos) usa
+  el servidor y PostgreSQL reales y **dos administradores reales** en contextos separados: inscripción
+  TOTP y rechazo de un código repetido, búsqueda de cuentas, suspensión de un cliente y bloqueo
+  inmediato, invitación y activación de un solo uso (el token sale de la barra de direcciones), carrera
+  por reclamar un caso (gana exactamente uno), respuesta del titular del caso y resolución sin que el
+  cliente vea los motivos internos, devolución a soporte, códigos de recuperación, recuperación y
+  reemplazo del autenticador, permisos por rol y suspensión mutua simultánea. Solo corre con
   `ADMIN_DEMO_CREDENTIALS` definido; el origen `http://127.0.0.1:4173` debe estar permitido en CORS.
+* Tiempos de vida de la sesión (administrador con 1 min de acceso, 5 min de inactividad y 1 h absoluta,
+  solo para la prueba): una pestaña activa renueva en segundo plano y sigue dentro (la renovación
+  responde 200); si el acceso vence en medio de una acción, la pantalla avisa «Tu sesión se está
+  renovando», conserva lo escrito y la acción se repite sin volver a iniciar sesión; tras la
+  inactividad el servidor rechaza la renovación (403 `staff_access_denied`) y el API de administración
+  (401) aunque se presente la cookie guardada. El límite absoluto de 4 h solo se cubre con pruebas
+  unitarias.
+* Accesibilidad: auditoría con axe-core (WCAG 2.0/2.1/2.2 A y AA más buenas prácticas) sobre 22
+  estados de pantalla en tema claro y oscuro. Encontró contraste insuficiente del texto de error
+  (3,55:1) y del texto atenuado (4,36:1), un `article` con `role="listitem"` y un landmark
+  complementario anidado; corregidos, la auditoría final da 0 infracciones. La pantalla de soporte
+  existente conserva los dos patrones de marcado (no se modificó fuera del alcance de la historia).
+* Cliente Flutter en Windows (compilación de depuración contra el mismo backend): inicio de sesión de un
+  cliente, Inicio, Ayuda y soporte con sus tickets, detalle del ticket escalado sin el motivo interno,
+  respuesta y resolución del administrador visibles tras actualizar, el cliente suspendido vuelve a la
+  pantalla de acceso en la siguiente llamada y se le rechaza con el mensaje genérico de credenciales,
+  tras reactivar entra con una sesión nueva, y una cuenta de administrador recibe el mismo rechazo
+  genérico en la app de clientes. Verificación compartida de Flutter: formato y análisis limpios,
+  644 pruebas pasan, 1 falla (comparación de imagen de referencia
+  `dashboard_spending_summary_390x844.png`, 3,99 % de píxeles; no hay cambios de código Flutter en
+  estas ramas) y cobertura de líneas 86,17 %. Prueba nativa de humo de Windows: 4 de 5 pasan; falla
+  `protects Home and clears on Logout` por un toque que no alcanza el botón (arnés existente) y la
+  compilación normal se restauró. Android no se ejecutó (licencias del SDK pendientes y sin dispositivo
+  configurado en esta sesión).
 * Modo producción sobre TLS real (certificado autofirmado local): prefijo `__Host-`, `Secure`,
   `HttpOnly`, `SameSite=Strict`, sin `Domain`, rechazo de HTTP plano, de orígenes fuera de la lista,
   de `Authorization` y de tipos de contenido que no sean JSON, y fallo cerrado sin clave MFA
@@ -174,5 +200,9 @@ simultáneas (30 rondas) que fallan con `DeadlockDetected` contra la versión an
 * Los tickets en progreso de una persona cuyo rol se cambia no se reasignan automáticamente.
 * El enlace de activación se muestra una sola vez al administrador (no hay proveedor de correo aprobado).
 * Los limitadores de tasa son en memoria por instancia, como los existentes.
+* Una cuenta del personal solo puede tener una sesión viva: iniciar sesión desde otro navegador se
+  rechaza con `staff_session_exists` hasta que la otra sesión cierre o venza por inactividad (15 min
+  para administradores). Es el comportamiento existente del portal; cerrar sesión en la pestaña libera
+  la cuenta.
 * El trigger de auditoría bloquea `UPDATE`/`DELETE` por fila; impedir `TRUNCATE`/`DROP` del propietario
   requiere un rol de base de datos sin esos privilegios (despliegue).
