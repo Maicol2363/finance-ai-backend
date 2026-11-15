@@ -14,7 +14,9 @@ from finance_ai.core.roles import MFA_REQUIRED_ROLES
 from finance_ai.staff_auth.activation import StaffActivationService
 from finance_ai.staff_auth.dependencies import (
     StaffCookieSettings,
+    enforce_staff_activation_limit,
     enforce_staff_mfa_limit,
+    enforce_staff_recovery_limit,
     get_staff_access_user,
     get_staff_activation_service,
     get_staff_recovery_service,
@@ -420,7 +422,7 @@ def staff_mfa_reset(
     request: Request,
     _: Annotated[None, Depends(require_staff_request_boundary)],
     cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
-    _limit: Annotated[None, Depends(enforce_staff_mfa_limit)],
+    _limit: Annotated[None, Depends(enforce_staff_recovery_limit)],
     service: Annotated[StaffRecoveryService, Depends(get_staff_recovery_service)],
     limiter: Annotated[AuthRateLimiter, Depends(get_session_rate_limiter)],
 ) -> JSONResponse:
@@ -502,7 +504,7 @@ def staff_activate(
     payload: StaffActivationRequest,
     request: Request,
     _: Annotated[None, Depends(require_staff_request_boundary)],
-    _limit: Annotated[None, Depends(enforce_staff_mfa_limit)],
+    _limit: Annotated[None, Depends(enforce_staff_activation_limit)],
     service: Annotated[StaffActivationService, Depends(get_staff_activation_service)],
 ) -> Response:
     service.activate(

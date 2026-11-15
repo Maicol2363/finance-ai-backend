@@ -187,3 +187,34 @@ def test_recovery_codes_need_the_password_and_a_privileged_role(
         headers=HEADERS,
     )
     assert denied.status_code == 403 and denied.json()["code"] == "staff_access_denied"
+
+
+def test_activation_and_recovery_use_their_own_rate_limit_buckets(
+    recovery_client: tuple[TestClient, StubRecovery],
+) -> None:
+    client, _ = recovery_client
+    from finance_ai.staff_auth.dependencies import get_staff_activation_service
+
+    class Activation:
+        def activate(self, **kwargs: object) -> None:
+            del kwargs
+
+    client.app.dependency_overrides[get_staff_activation_service] = Activation  # type: ignore[attr-defined]
+    activation = {
+        "token": "t" * 43,
+        "password": "a-long-passphrase",
+        "password_confirmation": "a-long-passphrase",
+    }
+    statuses = [
+        client.post("/api/v1/staff/auth/activate", json=activation, headers=HEADERS).status_code
+        for _ in range(11)
+    ]
+    assert statuses[:10] == [204] * 10 and statuses[10] == 429
+
+    # The same client can still recover its authenticator and verify MFA: separate buckets.
+    reset = client.post(
+        "/api/v1/staff/auth/mfa/reset",
+        json={"email": "admin@example.test", "password": "correct-password", "code": "123456"},
+        headers=HEADERS,
+    )
+    assert reset.status_code == 202

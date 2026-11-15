@@ -372,6 +372,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        history = op.get_bind().scalar(sa.text("SELECT count(*) FROM account_suspension"))
+        if history:
+            raise RuntimeError(
+                "Refusing to drop account_suspension while it contains suspension history"
+            )
     op.execute(
         "DROP PROCEDURE IF EXISTS sp_admin_return_escalated_ticket"
         "(bigint, bigint, text, text, text, bigint)"

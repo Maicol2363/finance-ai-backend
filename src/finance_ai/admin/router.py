@@ -20,7 +20,7 @@ from finance_ai.admin.dependencies import (
     correlation_id,
 )
 from finance_ai.admin.schemas import (
-    MAX_BIGINT,
+    AccountLookupRequest,
     AdminAccount,
     AdminCase,
     ChangeStaffRoleRequest,
@@ -48,25 +48,25 @@ _COMMON_ERRORS: dict[int | str, dict[str, Any]] = {
 }
 
 
-@router.get(
+@router.post(
     "/accounts/lookup",
     response_model=AdminAccount,
     summary="Look Up a Login Account (ADM-01)",
     description=(
-        "Exact email or account ID lookup of one customer or staff login account. Returns "
+        "Exact email or account ID lookup of one customer or staff login account, sent in the "
+        "request body so the address never appears in a URL or proxy access log. Returns "
         "allowlisted metadata only: never balances, transactions, receipts, credentials or "
         "session values. The record is a login account, not a financial account."
     ),
     responses={**_COMMON_ERRORS, 404: {"model": ProblemResponse}, 422: {"model": ProblemResponse}},
 )
 def lookup_account(
+    payload: AccountLookupRequest,
     admin: ReadingAdmin,
     service: AccountService,
-    email: Annotated[str | None, Query(max_length=320)] = None,
-    account_id: Annotated[int | None, Query(alias="id", ge=1, le=MAX_BIGINT)] = None,
 ) -> AdminAccount:
     del admin
-    return service.lookup(email=email, account_id=account_id)
+    return service.lookup(email=payload.email, account_id=payload.id)
 
 
 @router.get(

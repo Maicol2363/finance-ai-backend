@@ -67,7 +67,6 @@ _ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         "staff.created",
         "staff.activated",
         "role.changed",
-        "session.revoked",
     }
 )
 _ALLOWED_RESULTS: Final[frozenset[str]] = frozenset({"success", "denied", "failure"})

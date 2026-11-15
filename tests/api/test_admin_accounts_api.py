@@ -105,7 +105,7 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> Iterator[Harness]:
 
 
 ENDPOINTS = [
-    ("get", "/api/v1/staff/admin/accounts/lookup?id=7", None),
+    ("post", "/api/v1/staff/admin/accounts/lookup", {"id": 7}),
     ("get", "/api/v1/staff/admin/accounts/7", None),
     ("post", "/api/v1/staff/admin/accounts/7/suspend", {"reason": "fraud", "confirm": True}),
     ("post", "/api/v1/staff/admin/accounts/7/reactivate", {"confirm": True}),
@@ -156,13 +156,14 @@ def test_requests_without_the_staff_boundary_header_are_refused(harness: Harness
     assert harness.service.calls == []
 
 
+LOOKUP = "/api/v1/staff/admin/accounts/lookup"
+
+
 def test_admin_lookup_by_email_and_by_id_returns_the_allowlisted_projection(
     harness: Harness,
 ) -> None:
-    by_email = harness.client.get(
-        "/api/v1/staff/admin/accounts/lookup?email=Customer@Example.test", headers=HEADERS
-    )
-    by_id = harness.client.get("/api/v1/staff/admin/accounts/lookup?id=7", headers=HEADERS)
+    by_email = harness.client.post(LOOKUP, json={"email": "Customer@Example.test"}, headers=HEADERS)
+    by_id = harness.client.post(LOOKUP, json={"id": 7}, headers=HEADERS)
 
     assert by_email.status_code == by_id.status_code == 200
     body = by_email.json()
@@ -182,23 +183,32 @@ def test_admin_lookup_by_email_and_by_id_returns_the_allowlisted_projection(
 
 
 @pytest.mark.parametrize(
-    ("query", "code"),
+    ("body", "code"),
     [
-        ("", "admin_request_invalid"),
-        ("?email=a@example.test&id=7", "admin_request_invalid"),
-        ("?email=not-an-email", "admin_request_invalid"),
-        ("?id=0", "request_invalid"),
-        ("?id=abc", "request_invalid"),
-        ("?id=99999999999999999999", "request_invalid"),
+        ({}, "admin_request_invalid"),
+        ({"email": "a@example.test", "id": 7}, "admin_request_invalid"),
+        ({"email": "not-an-email"}, "admin_request_invalid"),
+        ({"id": 0}, "request_invalid"),
+        ({"id": "abc"}, "request_invalid"),
+        ({"id": 99999999999999999999}, "request_invalid"),
+        ({"email": "a@example.test", "role": "admin"}, "request_invalid"),
+        ({"email": "x" * 321}, "request_invalid"),
     ],
 )
 def test_lookup_rejects_missing_conflicting_or_malformed_keys(
-    harness: Harness, query: str, code: str
+    harness: Harness, body: dict[str, object], code: str
 ) -> None:
-    response = harness.client.get(f"/api/v1/staff/admin/accounts/lookup{query}", headers=HEADERS)
+    response = harness.client.post(LOOKUP, json=body, headers=HEADERS)
 
     assert response.status_code == 422
     assert response.json()["code"] == code
+
+
+def test_an_email_in_a_url_is_never_accepted_so_proxies_cannot_log_it(harness: Harness) -> None:
+    response = harness.client.get(f"{LOOKUP}?email=customer@example.test", headers=HEADERS)
+
+    assert response.status_code in {405, 422}
+    assert harness.service.calls == []
 
 
 @pytest.mark.parametrize("account_id", ["0", "-5", "abc", "1.5"])
@@ -299,8 +309,7 @@ def test_post_requires_a_json_content_type(harness: Harness) -> None:
 
 def test_lookups_are_rate_limited_per_administrator(harness: Harness) -> None:
     statuses = [
-        harness.client.get("/api/v1/staff/admin/accounts/lookup?id=7", headers=HEADERS).status_code
-        for _ in range(61)
+        harness.client.post(LOOKUP, json={"id": 7}, headers=HEADERS).status_code for _ in range(61)
     ]
 
     assert statuses[:60] == [200] * 60

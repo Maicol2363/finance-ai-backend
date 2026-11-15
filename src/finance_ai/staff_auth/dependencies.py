@@ -95,6 +95,20 @@ def enforce_staff_mfa_limit(request: Request) -> None:
         raise MfaRateLimitedError(60)
 
 
+def enforce_staff_activation_limit(request: Request) -> None:
+    """Own bucket: a client hammering activation must not lock others out of MFA."""
+    peer = request.client.host if request.client else "unknown"
+    if not _mfa_limiter().hit(parse("10/minute"), "staff-activate", peer):
+        raise MfaRateLimitedError(60)
+
+
+def enforce_staff_recovery_limit(request: Request) -> None:
+    """Own bucket for authenticator recovery attempts (password + proof)."""
+    peer = request.client.host if request.client else "unknown"
+    if not _mfa_limiter().hit(parse("10/minute"), "staff-recover", peer):
+        raise MfaRateLimitedError(60)
+
+
 def require_staff_request_boundary(request: Request) -> None:
     if request.headers.get("x-staff-request") != "1":
         raise StaffRequestDeniedError()

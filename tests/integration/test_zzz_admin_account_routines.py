@@ -1333,3 +1333,20 @@ def test_a_recovery_code_resets_exactly_once_under_concurrency() -> None:
         scalar("SELECT count(*) FROM security_audit_event WHERE event_type = 'auth.mfa_recovered'")
         == 1
     )
+
+
+def test_downgrade_refuses_to_drop_suspension_history() -> None:
+    admin = make_user("admin", "admin@example.test")
+    customer = make_user("user", "customer@example.test")
+    assert call_suspension(admin, customer, True, "evidence that must survive") == "ok"
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+
+    with pytest.raises(RuntimeError, match="suspension history"):
+        alembic_command.downgrade(config, "0019_staff_mfa_challenge")
+
+    # The failed downgrade rolled back: schema, routines and the evidence are intact.
+    assert scalar("SELECT count(*) FROM account_suspension") == 1
+    assert (
+        scalar("SELECT count(*) FROM pg_proc WHERE proname = 'sp_admin_set_account_suspension'")
+        == 1
+    )

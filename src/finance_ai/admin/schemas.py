@@ -71,6 +71,13 @@ class AdminAccount(BaseModel):
     suspension: SuspensionRecord | None = None
 
 
+class AccountLookupRequest(StrictRequest):
+    """Exactly one exact key. The email travels in the body, never in a URL that proxies log."""
+
+    email: str | None = Field(default=None, max_length=320)
+    id: int | None = Field(default=None, ge=1, le=MAX_BIGINT)
+
+
 class SuspendAccountRequest(StrictRequest):
     reason: str = Field(min_length=1, max_length=2_000)
     confirm: Literal[True]

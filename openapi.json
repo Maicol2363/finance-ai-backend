@@ -75,6 +75,39 @@
         "title": "AccountListResponse",
         "type": "object"
       },
+      "AccountLookupRequest": {
+        "additionalProperties": false,
+        "description": "Exactly one exact key. The email travels in the body, never in a URL that proxies log.",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          }
+        },
+        "title": "AccountLookupRequest",
+        "type": "object"
+      },
       "AccountRef": {
         "additionalProperties": false,
         "properties": {
@@ -11413,46 +11446,19 @@
       }
     },
     "/api/v1/staff/admin/accounts/lookup": {
-      "get": {
-        "description": "Exact email or account ID lookup of one customer or staff login account. Returns allowlisted metadata only: never balances, transactions, receipts, credentials or session values. The record is a login account, not a financial account.",
-        "operationId": "lookup_account_api_v1_staff_admin_accounts_lookup_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "email",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 320,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Email"
+      "post": {
+        "description": "Exact email or account ID lookup of one customer or staff login account, sent in the request body so the address never appears in a URL or proxy access log. Returns allowlisted metadata only: never balances, transactions, receipts, credentials or session values. The record is a login account, not a financial account.",
+        "operationId": "lookup_account_api_v1_staff_admin_accounts_lookup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountLookupRequest"
+              }
             }
           },
-          {
-            "in": "query",
-            "name": "id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maximum": 9223372036854775807,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Id"
-            }
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
