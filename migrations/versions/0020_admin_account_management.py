@@ -107,6 +107,14 @@ DECLARE
     v_reason text;
     v_constraint text;
 BEGIN
+    -- Lock the actor and the target together, in ascending id order, whichever role each plays
+    -- in this call. Two administrators acting on each other (or on a shared target) therefore
+    -- queue behind one another instead of each holding the row the other needs. NO KEY UPDATE
+    -- does not conflict with the foreign-key checks (FOR KEY SHARE) that the inserts below make
+    -- on these same rows; FOR UPDATE did, and that closed a deadlock cycle. The actor is judged
+    -- only after the locks, on the latest committed state: an administrator suspended a moment
+    -- earlier by a concurrent call is no longer authorized.
+    PERFORM 1 FROM app_user WHERE id IN (p_actor_id, p_target_id) ORDER BY id FOR NO KEY UPDATE;
     IF NOT EXISTS (
         SELECT 1 FROM app_user u JOIN role r ON r.id = u.role_id
         WHERE u.id = p_actor_id AND u.is_active AND r.name = 'admin'
@@ -118,7 +126,7 @@ BEGIN
         p_result := 'self_target';
         RETURN;
     END IF;
-    SELECT * INTO v_target FROM app_user WHERE id = p_target_id FOR UPDATE;
+    SELECT * INTO v_target FROM app_user WHERE id = p_target_id;
     IF NOT FOUND THEN
         p_result := 'not_found';
         RETURN;

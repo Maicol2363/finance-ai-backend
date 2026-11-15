@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -47,8 +47,7 @@ def migrated_database() -> None:
         seed_shared_data(session)
 
 
-@pytest.fixture(autouse=True)
-def clean_rows(migrated_database: None) -> Iterator[None]:
+def reset_rows() -> None:
     with get_session_factory()() as session:
         session.execute(
             text(
@@ -57,17 +56,15 @@ def clean_rows(migrated_database: None) -> Iterator[None]:
             )
         )
         session.commit()
+
+
+@pytest.fixture(autouse=True)
+def clean_rows(migrated_database: None) -> Iterator[None]:
+    reset_rows()
     yield
     # Leave no audit evidence behind: other modules rebuild the schema from scratch and the
     # audit table refuses to be dropped while it holds events.
-    with get_session_factory()() as session:
-        session.execute(
-            text(
-                "TRUNCATE TABLE security_audit_event, account_suspension, app_user "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
-        session.commit()
+    reset_rows()
 
 
 def make_user(role: str, email: str, *, active: bool = True) -> int:
@@ -402,7 +399,7 @@ def test_p1_can_suspend_another_administrator_but_never_the_last_one() -> None:
     assert scalar("SELECT is_active FROM app_user WHERE id = :id", id=first) is True
 
 
-def test_p1_concurrent_mutual_suspension_leaves_exactly_one_active_administrator() -> None:
+def test_p1_held_mutual_suspension_refuses_the_second_actor_as_no_longer_authorized() -> None:
     first = make_user("admin", "one@example.test")
     second = make_user("admin", "two@example.test")
     holding = threading.Event()
@@ -431,7 +428,8 @@ def test_p1_concurrent_mutual_suspension_leaves_exactly_one_active_administrator
     two.join(timeout=15)
 
     assert results["one"] == "ok"
-    assert results["two"] == "last_admin"
+    # `two` queued behind `one`'s locks; once `one` committed, its actor had been suspended.
+    assert results["two"] == "actor_not_authorized"
     assert (
         scalar(
             "SELECT count(*) FROM app_user WHERE is_active AND role_id = "
@@ -440,6 +438,110 @@ def test_p1_concurrent_mutual_suspension_leaves_exactly_one_active_administrator
         == 1
     )
     assert scalar("SELECT count(*) FROM account_suspension") == 1
+
+
+ADMIN_COUNT = (
+    "SELECT count(*) FROM app_user WHERE is_active AND role_id = "
+    "(SELECT id FROM role WHERE name = 'admin')"
+)
+
+
+def race(calls: list[Callable[[], str]]) -> tuple[list[str], list[str]]:
+    """Run the calls at the same instant; return (results, database errors)."""
+    barrier = threading.Barrier(len(calls))
+    results: list[str] = []
+    errors: list[str] = []
+    guard = threading.Lock()
+
+    def run(call: Callable[[], str]) -> None:
+        barrier.wait(timeout=10)
+        try:
+            outcome = call()
+        except DBAPIError as error:
+            with guard:
+                errors.append(f"{type(error.orig).__name__}: {error.orig}")
+            return
+        with guard:
+            results.append(outcome)
+
+    threads = [threading.Thread(target=run, args=(call,)) for call in calls]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    return results, errors
+
+
+def test_p1_simultaneous_mutual_suspension_never_deadlocks() -> None:
+    """Two administrators suspend each other at the same instant, many times over.
+
+    Row locks on the actor and the target are taken in ascending id order, so the pair can
+    never wait on each other: exactly one suspension wins and the other finds that its actor
+    is no longer an active administrator. No PostgreSQL deadlock may ever surface.
+    """
+
+    def one_round() -> None:
+        reset_rows()
+        first = make_user("admin", "one@example.test")
+        second = make_user("admin", "two@example.test")
+        results, errors = race(
+            [
+                lambda: call_suspension(first, second, True, "mutual"),
+                lambda: call_suspension(second, first, True, "mutual"),
+            ]
+        )
+        assert errors == []
+        assert sorted(results) == ["actor_not_authorized", "ok"]
+        assert scalar(ADMIN_COUNT) == 1
+        assert scalar("SELECT count(*) FROM account_suspension") == 1
+
+    for _ in range(30):
+        one_round()
+
+
+def test_p1_simultaneous_suspensions_of_one_target_from_two_administrators() -> None:
+    def one_round() -> None:
+        reset_rows()
+        first = make_user("admin", "one@example.test")
+        second = make_user("admin", "two@example.test")
+        customer = make_user("user", "customer@example.test")
+        results, errors = race(
+            [
+                lambda: call_suspension(first, customer, True, "same"),
+                lambda: call_suspension(second, customer, True, "same"),
+            ]
+        )
+        assert errors == []
+        assert sorted(results) == ["already_in_state", "ok"]
+        assert scalar("SELECT count(*) FROM account_suspension") == 1
+
+    for _ in range(15):
+        one_round()
+
+
+def test_service_simultaneous_mutual_suspension_is_a_clean_refusal_not_a_failure() -> None:
+    from finance_ai.core.errors import StaffAccessDeniedError
+
+    def suspend(actor: int, target: int) -> str:
+        try:
+            real_service().suspend(
+                actor_id=actor, target_id=target, reason="mutual", correlation_id=f"c-{actor}"
+            )
+        except StaffAccessDeniedError:
+            return "denied"
+        return "ok"
+
+    def one_round() -> None:
+        reset_rows()
+        first = make_user("admin", "one@example.test")
+        second = make_user("admin", "two@example.test")
+        results, errors = race([lambda: suspend(first, second), lambda: suspend(second, first)])
+        assert errors == []
+        assert sorted(results) == ["denied", "ok"]
+        assert scalar(ADMIN_COUNT) == 1
+
+    for _ in range(15):
+        one_round()
 
 
 def test_open_suspension_is_unique_per_account() -> None:
@@ -564,8 +666,8 @@ def test_service_reactivation_never_restores_old_sessions() -> None:
     assert [event[0] for event in audit_events()] == ["account.suspended", "account.reactivated"]
 
 
-def test_service_concurrent_mutual_suspension_reports_the_last_administrator_guard() -> None:
-    from finance_ai.core.errors import LastActiveAdminError
+def test_service_held_mutual_suspension_refuses_the_second_actor() -> None:
+    from finance_ai.core.errors import StaffAccessDeniedError
 
     first = make_user("admin", "one@example.test")
     second = make_user("admin", "two@example.test")
@@ -590,8 +692,8 @@ def test_service_concurrent_mutual_suspension_reports_the_last_administrator_gua
                     actor_id=actor, target_id=target, reason="mutual", correlation_id="c-" + name
                 )
                 outcomes[name] = "ok"
-        except LastActiveAdminError:
-            outcomes[name] = "last_admin"
+        except StaffAccessDeniedError:
+            outcomes[name] = "denied"
 
     one = threading.Thread(target=run, args=("one", first, second, True))
     two = threading.Thread(target=run, args=("two", second, first, False))
@@ -603,9 +705,10 @@ def test_service_concurrent_mutual_suspension_reports_the_last_administrator_gua
     one.join(timeout=15)
     two.join(timeout=15)
 
-    assert outcomes == {"one": "ok", "two": "last_admin"}
+    assert outcomes == {"one": "ok", "two": "denied"}
     assert scalar("SELECT is_active FROM app_user WHERE id = :id", id=first) is True
-    assert ("account.suspended", "denied") in [event[:2] for event in audit_events()]
+    assert scalar("SELECT is_active FROM app_user WHERE id = :id", id=second) is False
+    assert scalar("SELECT count(*) FROM account_suspension") == 1
 
 
 # --- ADM-03 / ADM-04 on PostgreSQL: single use under concurrency, role change -----------------
