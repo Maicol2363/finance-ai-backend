@@ -118,6 +118,33 @@ class StaffMfaChallenge(Base):
     )
 
 
+class StaffMfaRecoveryCode(Base):
+    """Hashed single-use recovery code for a lost authenticator (SEC-01)."""
+
+    __tablename__ = "staff_mfa_recovery_code"
+    __table_args__ = (
+        CheckConstraint("char_length(code_hash) = 64", name="code_hash_length"),
+        CheckConstraint(
+            "consumed_at IS NULL OR consumed_at >= created_at", name="consumption_after_creation"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_staff_mfa_recovery_code_user_open",
+    StaffMfaRecoveryCode.user_id,
+    StaffMfaRecoveryCode.consumed_at,
+)
 Index("ix_staff_invitation_email_created", StaffInvitation.email, StaffInvitation.created_at)
 Index(
     "ix_staff_mfa_challenge_user_created", StaffMfaChallenge.user_id, StaffMfaChallenge.created_at
