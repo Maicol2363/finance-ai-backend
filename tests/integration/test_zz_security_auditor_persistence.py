@@ -90,7 +90,12 @@ def clean_rows(migrated_test_database: None) -> Iterator[None]:
             text("TRUNCATE TABLE security_audit_event, app_user RESTART IDENTITY CASCADE")
         )
         session.commit()
-    yield
+    try:
+        yield
+    finally:
+        with get_session_factory()() as session:
+            session.execute(text("TRUNCATE TABLE security_audit_event"))
+            session.commit()
 
 
 def mfa_policy() -> StaffMfaPolicy:

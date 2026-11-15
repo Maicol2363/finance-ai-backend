@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from finance_ai.api.router import api_router
@@ -7,6 +6,7 @@ from finance_ai.core.config import get_settings
 from finance_ai.core.errors import install_exception_handlers
 from finance_ai.core.logging import configure_logging
 from finance_ai.core.middleware import (
+    DiagnosticCORSMiddleware,
     RequestGuardMiddleware,
     StaffNoStoreMiddleware,
 )
@@ -29,10 +29,10 @@ def create_app() -> FastAPI:
     # test_staff_preflight_is_exact_origin_and_never_allows_credentials). It only adds
     # headers and never produces responses, so every response still gets CORS headers.
     app.add_middleware(  # NOSONAR S8414
-        CORSMiddleware,
+        DiagnosticCORSMiddleware,
         allow_origins=settings.cors_allowed_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Correlation-ID", "X-Staff-Request"],
         expose_headers=["X-Correlation-ID"],
     )
