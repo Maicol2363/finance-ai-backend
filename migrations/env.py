@@ -45,7 +45,8 @@ _MODELS = (
     UserSession,
 )
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Alembic uses ConfigParser interpolation. Preserve URL-encoded credentials.
+config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 if config.config_file_name is not None:
     # disable_existing_loggers defaults to True, which would silence every application logger
     # already created in this process (for example when a test or an embedded runner applies
