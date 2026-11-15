@@ -141,6 +141,119 @@ class ServiceUnavailableError(AppError):
         )
 
 
+class StaffSessionInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="session_invalid",
+            title="Session is no longer valid",
+            detail="Please log in again.",
+        )
+
+
+class StaffLoginInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="invalid_credentials",
+            title="Login failed",
+            detail="Invalid email or password.",
+        )
+
+
+class StaffAccessDeniedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="staff_access_denied",
+            title="Staff access denied",
+            detail="This account is not permitted to access the staff portal.",
+        )
+
+
+class SupportTicketNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="support_ticket_not_found",
+            title="Ticket not found",
+            detail="The requested support ticket is unavailable.",
+        )
+
+
+class SupportTicketClaimConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="support_ticket_claim_conflict",
+            title="Ticket is no longer available",
+            detail=(
+                "Another agent claimed this ticket or it is no longer claimable. "
+                "Refresh the queue and try again."
+            ),
+        )
+
+
+class StaffSessionExistsError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="staff_session_exists",
+            title="Staff session already exists",
+            detail="A staff browser session is already active for this account.",
+        )
+
+
+class StaffSessionExpiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="access_expired",
+            title="Staff access expired",
+            detail="Refresh the staff session to continue.",
+        )
+
+
+class StaffAuthenticationRequiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="authentication_required",
+            title="Authentication required",
+            detail="Please log in to continue.",
+        )
+
+
+class StaffOriginDeniedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="staff_origin_denied",
+            title="Request origin denied",
+            detail="This request origin is not allowed.",
+        )
+
+
+class StaffRequestDeniedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="staff_request_denied",
+            title="Request denied",
+            detail="This request could not be authorized.",
+        )
+
+
+class AuditUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="audit_unavailable",
+            title="Authentication is temporarily unavailable",
+            detail="The request could not be completed securely. Please try again later.",
+        )
+
+
 class AccountNameConflictError(AppError):
     def __init__(self) -> None:
         super().__init__(
@@ -539,7 +652,7 @@ def _validation_field_errors(exc: RequestValidationError) -> dict[str, list[str]
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-        return JSONResponse(
+        response = JSONResponse(
             status_code=exc.status,
             headers=exc.headers,
             content=problem_payload(
@@ -551,6 +664,28 @@ def install_exception_handlers(app: FastAPI) -> None:
                 field_errors=exc.field_errors,
             ),
         )
+        if request.url.path.startswith("/api/v1/staff/auth/") and exc.code in {
+            "session_invalid",
+            "staff_access_denied",
+        }:
+            from finance_ai.core.config import get_settings
+
+            settings = get_settings()
+            secure = settings.environment == "production" or request.url.scheme == "https"
+            cookie_names = (
+                ("__Host-finance_staff_access", "__Host-finance_staff_refresh")
+                if settings.environment == "production"
+                else ("finance_staff_access", "finance_staff_refresh")
+            )
+            for cookie_name in cookie_names:
+                response.delete_cookie(
+                    cookie_name,
+                    path="/",
+                    secure=secure,
+                    httponly=True,
+                    samesite="strict",
+                )
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
@@ -612,4 +747,164 @@ def install_exception_handlers(app: FastAPI) -> None:
                 detail="Something went wrong. Please try again later.",
                 correlation_id=correlation_id_from(request),
             ),
+        )
+
+
+class SupportTicketStateConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="support_ticket_state_conflict",
+            title="Ticket state conflict",
+            detail="This operation is not allowed in the current ticket state.",
+        )
+
+
+class MfaUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="mfa_unavailable",
+            title="Verification is temporarily unavailable",
+            detail="Privileged sign-in is temporarily unavailable. Please try again later.",
+        )
+
+
+class MfaChallengeInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="mfa_challenge_invalid",
+            title="Verification step is no longer valid",
+            detail="Sign in again with your email and password.",
+        )
+
+
+class MfaCodeInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="mfa_code_invalid",
+            title="Verification code rejected",
+            detail="The authenticator code is not valid. Wait for a new code and try again.",
+        )
+
+
+class MfaEnrollmentRequiredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="mfa_enrollment_required",
+            title="Authenticator setup required",
+            detail="Set up your authenticator application before entering a code.",
+        )
+
+
+class MfaAlreadyEnrolledError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="mfa_already_enrolled",
+            title="Authenticator already configured",
+            detail="Use the code shown by your configured authenticator application.",
+        )
+
+
+class MfaRateLimitedError(AppError):
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            status=429,
+            code="mfa_rate_limited",
+            title="Too many verification attempts",
+            detail="Please wait before trying again.",
+            headers={"Retry-After": str(retry_after_seconds)},
+        )
+
+
+class AuditQueryInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="audit_query_invalid",
+            title="Audit query is invalid",
+            detail="Correct the highlighted filters and try again.",
+            field_errors=field_errors,
+        )
+
+
+class AuditPeriodTooLongError(AppError):
+    def __init__(self, max_days: int) -> None:
+        super().__init__(
+            status=422,
+            code="audit_period_too_long",
+            title="Reporting period is too long",
+            detail=f"Select a period of at most {max_days} days.",
+            field_errors={"end_date": [f"The period cannot exceed {max_days} days."]},
+        )
+
+
+class AuditEventNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="audit_event_not_found",
+            title="Security event not found",
+            detail="The requested security event is unavailable.",
+        )
+
+
+class AuditReportTooLargeError(AppError):
+    def __init__(self, *, matching_events: int, max_events: int) -> None:
+        super().__init__(
+            status=422,
+            code="audit_report_too_large",
+            title="Report selection is too large",
+            detail=(
+                f"The selection contains {matching_events} events and a report can include "
+                f"at most {max_events}. Narrow the period or add filters and try again."
+            ),
+        )
+
+
+class AuditReportGenerationError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=500,
+            code="audit_report_generation_failed",
+            title="Report could not be generated",
+            detail="The report could not be generated. No file was produced. Try again.",
+        )
+
+
+class AuditExportUnrecordedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="audit_export_unrecorded",
+            title="Report delivery blocked",
+            detail=(
+                "The report was not delivered because its export could not be recorded. "
+                "Try again later."
+            ),
+        )
+
+
+class AuditQueryUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=503,
+            code="audit_query_unavailable",
+            title="Security events are temporarily unavailable",
+            detail="Security events could not be retrieved. This is not an empty result. Retry.",
+        )
+
+
+class AuditRateLimitedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=429,
+            code="audit_rate_limited",
+            title="Too many audit requests",
+            detail="Please wait before trying again.",
+            headers={"Retry-After": "60"},
         )

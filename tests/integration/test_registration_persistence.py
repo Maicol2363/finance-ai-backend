@@ -135,9 +135,16 @@ def test_registration_persists_one_owner_and_exact_catalogs() -> None:
 def test_registration_assigns_user_role_by_name_not_role_primary_key() -> None:
     with get_session_factory()() as session:
         # Simulate a valid database where IDs were assigned in a different order.
-        session.execute(update(Role).where(Role.name == "user").values(id=3))
-        session.execute(update(Role).where(Role.name == "admin").values(id=1))
-        session.execute(update(Role).where(Role.name == "user").values(id=2))
+        original_user_id = session.scalar(select(Role.id).where(Role.name == "user"))
+        original_admin_id = session.scalar(select(Role.id).where(Role.name == "admin"))
+        max_role_id = session.scalar(select(func.max(Role.id)))
+        assert original_user_id is not None
+        assert original_admin_id is not None
+        assert max_role_id is not None
+        temporary_id = max_role_id + 1
+        session.execute(update(Role).where(Role.name == "user").values(id=temporary_id))
+        session.execute(update(Role).where(Role.name == "admin").values(id=original_user_id))
+        session.execute(update(Role).where(Role.name == "user").values(id=original_admin_id))
         session.commit()
 
     try:
@@ -146,15 +153,15 @@ def test_registration_assigns_user_role_by_name_not_role_primary_key() -> None:
             user = session.get(AppUser, user_id)
             assert user is not None
             assert user.role.name == "user"
-            assert user.role_id == 2
+            assert user.role_id == original_admin_id
     finally:
         with get_session_factory()() as session:
             session.execute(
                 text("TRUNCATE TABLE income_source, category, app_user RESTART IDENTITY CASCADE")
             )
-            session.execute(update(Role).where(Role.name == "admin").values(id=3))
-            session.execute(update(Role).where(Role.name == "user").values(id=1))
-            session.execute(update(Role).where(Role.name == "admin").values(id=2))
+            session.execute(update(Role).where(Role.name == "admin").values(id=temporary_id))
+            session.execute(update(Role).where(Role.name == "user").values(id=original_user_id))
+            session.execute(update(Role).where(Role.name == "admin").values(id=original_admin_id))
             session.commit()
 
 

@@ -29,4 +29,4 @@ def test_normalize_name_is_idempotent(value: str) -> None:
 def test_ascii_names_are_case_foldable_for_uniqueness(value: str) -> None:
     normalized = _normalize_name(value)
     assert normalized == value.strip()
-    assert normalized.lower() == normalized.lower()
+    assert normalized.lower() == value.strip().lower()

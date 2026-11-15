@@ -27,7 +27,7 @@ CURRENCY_SEEDS = (
     {"code": "USD", "name": "US Dollar", "decimals": 2},
 )
 
-ROLE_SEEDS = ("user", "admin")
+ROLE_SEEDS = ("user", "support_agent", "admin", "security_auditor")
 
 PAYMENT_METHOD_SEEDS = ("Cash", "Credit Card", "Debit Card", "Bank Transfer")
 

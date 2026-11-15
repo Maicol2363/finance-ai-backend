@@ -15,11 +15,29 @@ From this directory:
 - Format check: `uv run ruff format --check .`
 - Types: `uv run mypy src`
 
-Start the standalone API and private PostgreSQL database with `docker compose up --build -d`. Run `docker compose --profile test run --rm test pytest -m integration` for real PostgreSQL integration tests. Never commit a real `.env`.
+On Linux, copy the safe example with `cp .env.example .env`; in Windows PowerShell, use `Copy-Item .env.example .env`. Then install the pinned environment with `uv sync --all-groups --frozen`. Start the API and private PostgreSQL database with `docker compose up --build -d`; the API container applies migrations and seeds at startup. To run FastAPI from the host, start the API in Compose or expose PostgreSQL only through the loopback-only DBeaver override. Never commit a real `.env`.
+
+Run PostgreSQL integration and regression tests in the isolated Compose test database with `docker compose --profile test run --rm test`. The test suite refuses database names not ending in `_test`. To change dependencies, use `uv add package@version`, review `pyproject.toml` and `uv.lock`, then verify with `uv sync --all-groups --frozen` and `uv run pip-audit`.
 
 Project documentation and cross-repository orchestration live in `NullCorvus/finance-ai`. The Android/Windows client lives in `Maicol2363/finance-ai-frontend`. This repository owns the generated `openapi.json` contract.
 
 The public identity endpoints are `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `GET /api/v1/auth/me`, and `POST /api/v1/auth/logout`. Access credentials expire after 15 minutes; renewable credentials rotate, are bounded by 30-day idle and 90-day absolute lifetimes, and are never persisted in plaintext. The default maximum is ten active sessions per user.
+
+## Staff foundation
+
+Migration `0018_staff_foundation` adds the approved `support_agent` and `security_auditor` role records, staff invitations, Administrator TOTP persistence, MFA assurance timestamp, ticket/message/activity tables, and append-only security audit events. It preserves the existing `user` and `admin` roles and does not create accounts or alter existing financial data. Support, Administrator, MFA and Auditor workflows are not implemented by this schema foundation; follow the authoritative stories before adding services or routes. Security Auditor query/report decisions remain provisional until the role stories are finalized.
+
+The React staff portal is in the separate `Maicol2363/finance-ai-frontend` repository under `staff-web/`. Its Vite origin is `http://127.0.0.1:5173`; `FINANCE_AI_CORS_ALLOWED_ORIGINS` in this repository's `.env` lists explicit local origins. Browser credentialed CORS is disabled. The current opaque bearer-session endpoints do not define a browser session contract, so sign-in and protected actions remain disabled in the staff portal. The Flutter client and API authentication contract are unchanged.
+
+The schema mapping and limitations are recorded in `aidlc-docs/inception/requirements/foundation-schema-mapping.md`. Apply migrations and run database tests only against an isolated database ending in `_test`; never point this feature branch at production or shared Neon.
+
+The locked TOTP, authenticated-encryption, QR-generation and PDF libraries prepare for later story implementations. No OTP, encryption, QR enrollment or PDF workflow is implemented in this foundation.
+
+## Security Auditor (PB-016, AUD-01–AUD-04)
+
+The `security_auditor` role uses the staff browser session with password plus TOTP (the SEC-01 consumer for this role): the password step returns HTTP 202 and a short-lived challenge; `/api/v1/staff/auth/mfa/enrollment`, `/mfa/verify` and `/mfa/cancel` complete it. Migration `0019_staff_mfa_challenge` adds the challenge table; TOTP secrets are AES-256-GCM encrypted with `FINANCE_AI_STAFF_MFA_ENCRYPTION_KEY` (32 random bytes, base64url). Without that key, Auditor sign-in fails closed and other roles are unaffected.
+
+The read-only Auditor API lives under `/api/v1/staff/audit/` (`catalog`, `events`, `events/{event_id}`, `investigations/{account_id}`, `summary`, `reports`). Every request rechecks the active account, current role, authoritative activation and MFA assurance; Support Agents are denied with a recorded `access.denied`, and `security_auditor` cannot authenticate to the customer API. Query and export bounds are `FINANCE_AI_AUDIT_MAX_QUERY_DAYS` (default 90) and `FINANCE_AI_AUDIT_MAX_REPORT_EVENTS` (default 2000). PDF reports come from one `REPEATABLE READ` snapshot and are delivered only after `audit.report_exported` is durably recorded. See `docs/SECURITY-AUDITOR-MVP.md` for the metric mappings, design decisions and the isolated local demo (`compose.audit-demo.yaml`).
 
 ## Financial accounts (HU-003)
 

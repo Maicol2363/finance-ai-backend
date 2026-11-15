@@ -17,10 +17,9 @@ import sys
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
-# Set Neon DB URL before importing settings
-os.environ["FINANCE_AI_DATABASE_URL"] = (
-    "postgresql+psycopg://neondb_owner:npg_pcxN62GAHhZW@ep-withered-rain-acg9wncp.sa-east-1.aws.neon.tech/neondb?sslmode=require"
-)
+# The target database must come from the environment; never hard-code credentials here.
+if not os.environ.get("FINANCE_AI_DATABASE_URL"):
+    sys.exit("Set FINANCE_AI_DATABASE_URL to the target database URL before running this script.")
 
 from sqlalchemy import text
 

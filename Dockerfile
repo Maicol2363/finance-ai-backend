@@ -23,6 +23,7 @@ COPY alembic.ini ./
 COPY migrations ./migrations
 COPY src ./src
 RUN uv sync --frozen --no-dev \
+    && mkdir -p /app/demo-data \
     && chown -R finance-ai:finance-ai /app
 
 FROM base AS test
@@ -32,6 +33,7 @@ USER root
 COPY tests ./tests
 COPY scripts ./scripts
 RUN uv sync --frozen --all-groups \
+    && mkdir -p /app/demo-data \
     && chown -R finance-ai:finance-ai /app
 
 USER finance-ai

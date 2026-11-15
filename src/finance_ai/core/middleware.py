@@ -2,7 +2,9 @@ import re
 import time
 from uuid import uuid4
 
-from starlette.responses import JSONResponse
+from starlette.datastructures import Headers
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from finance_ai.core.errors import problem_payload
@@ -23,6 +25,19 @@ _JSON_AUTH_PATHS = {
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
 }
+_STAFF_AUTH_PATHS = {
+    "/api/v1/staff/auth/login",
+    "/api/v1/staff/auth/refresh",
+    "/api/v1/staff/auth/logout",
+    "/api/v1/staff/auth/mfa/enrollment",
+    "/api/v1/staff/auth/mfa/verify",
+    "/api/v1/staff/auth/mfa/cancel",
+}
+_STAFF_AUDIT_PREFIX = "/api/v1/staff/audit/"
+
+
+def _is_staff_audit_path(path: str) -> bool:
+    return path.startswith(_STAFF_AUDIT_PREFIX)
 
 
 def _is_account_path(path: str) -> bool:
@@ -54,6 +69,76 @@ def _is_receipt_upload_path(path: str) -> bool:
 MAX_RECEIPT_REQUEST_BODY_BYTES = 10 * 1024 * 1024 + 64 * 1024
 
 
+def _safe_correlation_id(value: str) -> str:
+    return value if _CORRELATION_PATTERN.fullmatch(value) else uuid4().hex
+
+
+class DiagnosticCORSMiddleware(CORSMiddleware):
+    def preflight_response(self, request_headers: Headers) -> Response:
+        response = super().preflight_response(request_headers)
+        if response.status_code != 400:
+            return response
+
+        correlation_id = _safe_correlation_id(request_headers.get("x-correlation-id", ""))
+        logger.info(
+            "Cross-origin preflight denied",
+            extra={
+                "event": "cors.preflight_denied",
+                "correlation_id": correlation_id,
+                "status": 400,
+            },
+        )
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key not in {"content-type", "content-length"}
+        }
+        headers["x-correlation-id"] = correlation_id
+        return JSONResponse(
+            status_code=400,
+            headers=headers,
+            content=problem_payload(
+                status=400,
+                code="cors_preflight_denied",
+                title="Cross-origin request denied",
+                detail="This cross-origin request is not allowed.",
+                correlation_id=correlation_id,
+            ),
+        )
+
+
+class StaffNoStoreMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not str(scope.get("path", "")).startswith(
+            "/api/v1/staff/auth/"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        raw_correlation = headers.get(b"x-correlation-id", b"").decode("ascii", "ignore")
+        correlation_id = _safe_correlation_id(raw_correlation)
+        scope.setdefault("state", {})["correlation_id"] = correlation_id
+
+        async def send_with_staff_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                response_headers = list(message.get("headers", []))
+                normalized = {key.lower() for key, _ in response_headers}
+                if b"cache-control" not in normalized:
+                    response_headers.append((b"cache-control", b"no-store"))
+                if b"pragma" not in normalized:
+                    response_headers.append((b"pragma", b"no-cache"))
+                if b"x-correlation-id" not in normalized:
+                    response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
+                message["headers"] = response_headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_staff_headers)
+
+
 class RequestBodyTooLargeError(Exception):
     pass
 
@@ -69,9 +154,13 @@ class RequestGuardMiddleware:
             return
 
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        existing_correlation = scope.get("state", {}).get("correlation_id")
         raw_correlation = headers.get(b"x-correlation-id", b"").decode("ascii", "ignore")
         correlation_id = (
-            raw_correlation if _CORRELATION_PATTERN.fullmatch(raw_correlation) else uuid4().hex
+            existing_correlation
+            if isinstance(existing_correlation, str)
+            and _CORRELATION_PATTERN.fullmatch(existing_correlation)
+            else _safe_correlation_id(raw_correlation)
         )
         scope.setdefault("state", {})["correlation_id"] = correlation_id
         bind_correlation_id(correlation_id)
@@ -81,11 +170,12 @@ class RequestGuardMiddleware:
         is_registration = path == "/api/v1/auth/register" and method == "POST"
         auth_operation = _AUTH_OPERATIONS.get((method, path))
         guards_json_body = (
-            (method == "POST" and path in _JSON_AUTH_PATHS)
+            (method == "POST" and (path in _JSON_AUTH_PATHS or path in _STAFF_AUTH_PATHS))
             or (method in {"POST", "PATCH"} and _is_account_path(path))
             or (method in {"POST", "PATCH", "PUT"} and _is_category_path(path))
             or (method == "PATCH" and _is_expense_path(path))
             or (method == "POST" and _is_capture_path(path))
+            or (method == "POST" and _is_staff_audit_path(path))
         )
         is_receipt_upload = method == "POST" and _is_receipt_upload_path(path)
         body_limit = (
@@ -176,14 +266,17 @@ class RequestGuardMiddleware:
             if message["type"] == "http.response.start":
                 status_code = int(message["status"])
                 response_headers = list(message.get("headers", []))
-                response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
+                if not any(key.lower() == b"x-correlation-id" for key, _ in response_headers):
+                    response_headers.append((b"x-correlation-id", correlation_id.encode("ascii")))
                 if (
                     path.startswith("/api/v1/auth/")
+                    or path.startswith("/api/v1/staff/auth/")
                     or _is_account_path(path)
                     or _is_category_path(path)
                     or _is_expense_path(path)
                     or _is_history_path(path)
                     or _is_capture_path(path)
+                    or _is_staff_audit_path(path)
                 ):
                     response_headers.append((b"cache-control", b"no-store"))
                     response_headers.append((b"pragma", b"no-cache"))

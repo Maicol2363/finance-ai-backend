@@ -196,6 +196,7 @@ class FakeSessions:
             idle_expires_at=item.idle_expires_at,
             absolute_expires_at=item.absolute_expires_at,
             revoked_at=item.revoked_at,
+            platform=item.platform,
         )
 
     def lock_renewable_by_hash(self, token_hash: str) -> RenewableRecord | None:
@@ -246,6 +247,7 @@ class FakeSessions:
                 value
                 for value in self.store.sessions.values()
                 if value.access_token_hash == access_token_hash
+                and value.platform in {"android", "windows"}
                 and value.revoked_at is None
                 and value.access_expires_at > now
                 and value.idle_expires_at > now
@@ -416,3 +418,61 @@ def test_expiry_logout_and_cleanup_fail_closed_and_are_idempotent() -> None:
     assert service.cleanup_terminal_sessions(batch_size=1) == 0
     with pytest.raises(ValueError):
         service.cleanup_terminal_sessions(batch_size=0)
+
+
+def test_mobile_bearer_and_refresh_reject_staff_browser_sessions() -> None:
+    service, store, _, _ = make_service()
+    issued = login(service)
+    store.sessions[1].platform = "staff_browser"
+
+    with pytest.raises(AuthenticationRequiredError):
+        service.current_user(issued.access_credential)
+    with pytest.raises(SessionInvalidError):
+        service.refresh(issued.renewable_credential)
+    assert store.sessions[1].revoked_at is None
+    assert store.renewables[1].consumed_at is None
+
+
+def test_mobile_logout_does_not_revoke_staff_browser_refresh_credential() -> None:
+    service, store, _, _ = make_service()
+    issued = login(service)
+    store.sessions[1].platform = "staff_browser"
+
+    service.logout(issued.renewable_credential)
+
+    assert store.sessions[1].revoked_at is None
+
+
+def test_security_auditor_cannot_authenticate_to_the_customer_api() -> None:
+    service, store, _, hasher = make_service()
+    assert store.user is not None
+    store.user = AuthUserRecord(
+        id=store.user.id,
+        email=store.user.email,
+        password_hash=store.user.password_hash,
+        preferred_currency=store.user.preferred_currency,
+        is_active=True,
+        role_name="security_auditor",
+    )
+    with pytest.raises(InvalidCredentialsError) as denied:
+        login(service)
+    assert denied.value.code == "invalid_credentials"
+    assert hasher.verified_hashes == ["stored-hash"]
+    assert store.sessions == {}
+
+
+def test_customer_refresh_is_revoked_after_promotion_to_security_auditor() -> None:
+    service, store, _, _ = make_service()
+    issued = login(service)
+    assert store.user is not None
+    store.user = AuthUserRecord(
+        id=store.user.id,
+        email=store.user.email,
+        password_hash=store.user.password_hash,
+        preferred_currency=store.user.preferred_currency,
+        is_active=True,
+        role_name="security_auditor",
+    )
+    with pytest.raises(SessionInvalidError):
+        service.refresh(issued.renewable_credential)
+    assert store.sessions[1].revocation_reason == "authority_changed"

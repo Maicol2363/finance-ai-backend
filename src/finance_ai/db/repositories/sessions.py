@@ -9,7 +9,8 @@ from finance_ai.auth.session_repositories import (
     SessionRecord,
 )
 from finance_ai.auth.session_schemas import PublicAuthenticatedUser
-from finance_ai.db.models.identity import AppUser
+from finance_ai.core.roles import CUSTOMER_API_DENIED_ROLES
+from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
 
@@ -34,6 +35,7 @@ class SQLAlchemySessionUserRepository:
             password_hash=user.password_hash,
             preferred_currency=currency_code,
             is_active=user.is_active,
+            role_name=user.role.name,
         )
 
     def lock_by_id(self, user_id: int) -> AuthUserRecord | None:
@@ -52,6 +54,7 @@ class SQLAlchemySessionUserRepository:
             password_hash=user.password_hash,
             preferred_currency=currency_code,
             is_active=user.is_active,
+            role_name=user.role.name,
         )
 
     def update_password_hash(self, *, user_id: int, password_hash: str) -> None:
@@ -149,11 +152,13 @@ class SQLAlchemySessionRepository:
                 password_hash=user.password_hash,
                 preferred_currency=currency_code,
                 is_active=user.is_active,
+                role_name=user.role.name,
             ),
             access_expires_at=session.access_expires_at,
             idle_expires_at=session.idle_expires_at,
             absolute_expires_at=session.absolute_expires_at,
             revoked_at=session.revoked_at,
+            platform=session.platform,
         )
 
     def lock_renewable_by_hash(self, token_hash: str) -> RenewableRecord | None:
@@ -212,14 +217,17 @@ class SQLAlchemySessionRepository:
             select(AppUser.id, AppUser.email, Currency.code)
             .join(UserSession, UserSession.user_id == AppUser.id)
             .join(Currency, Currency.id == AppUser.preferred_currency_id)
+            .join(Role, Role.id == AppUser.role_id)
             .where(
                 UserSession.access_token_hash == access_token_hash,
+                UserSession.platform.in_(("android", "windows")),
                 UserSession.revoked_at.is_(None),
                 UserSession.access_expires_at > now,
                 UserSession.idle_expires_at > now,
                 UserSession.absolute_expires_at > now,
                 AppUser.is_active.is_(True),
                 Currency.is_active.is_(True),
+                Role.name.not_in(CUSTOMER_API_DENIED_ROLES),
             )
             .limit(1)
         ).one_or_none()

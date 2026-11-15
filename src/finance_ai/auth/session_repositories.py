@@ -12,6 +12,7 @@ class AuthUserRecord:
     password_hash: str
     preferred_currency: str
     is_active: bool
+    role_name: str = "user"
 
     def public_user(self) -> PublicAuthenticatedUser:
         return PublicAuthenticatedUser(
@@ -29,6 +30,7 @@ class SessionRecord:
     idle_expires_at: datetime
     absolute_expires_at: datetime
     revoked_at: datetime | None
+    platform: str = "android"
 
 
 @dataclass(frozen=True)

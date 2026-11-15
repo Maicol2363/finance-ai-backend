@@ -789,7 +789,7 @@ class SQLAlchemyExpenseRepository:
             updated_at=expense.updated_at,
             receipt_image=receipt.image,
             image_path=expense.image_path,
-            receipt_total=receipt.total if receipt is not None else None,
+            receipt_total=receipt.total,
         )
 
     def _populate_receipt_items(

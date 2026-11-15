@@ -24,7 +24,7 @@ SUSPICIOUS_CODE_REGEX = re.compile(
     <\s*script\b[^>]*>|
     <\s*/\s*script\s*>|
     javascript:|
-    \b(SELECT\s+.*FROM|INSERT\s+INTO|DROP\s+TABLE|UPDATE\s+.*SET|UNION\s+SELECT|ALTER\s+TABLE)\b|
+    \b(SELECT\s.{0,200}?FROM|INSERT\s+INTO|DROP\s+TABLE|UPDATE\s.{0,200}?SET|UNION\s+SELECT|ALTER\s+TABLE)\b|
     \bdef\s+[a-zA-Z_]\w*\s*\(|
     \bclass\s+[a-zA-Z_]\w*[:\(]|
     \bimport\s+[a-zA-Z_]|
