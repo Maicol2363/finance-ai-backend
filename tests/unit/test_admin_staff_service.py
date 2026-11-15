@@ -164,7 +164,7 @@ def activate(env: Env, token: str, password: str = GOOD_PASSWORD, confirmation: 
 def events(env: Env) -> list[SecurityAuditEvent]:
     with env.factory() as session:
         return list(
-            session.scalars(select(SecurityAuditEvent).order_by(SecurityAuditEvent.event_id))
+            session.scalars(select(SecurityAuditEvent).order_by(SecurityAuditEvent.occurred_at))
         )
 
 
