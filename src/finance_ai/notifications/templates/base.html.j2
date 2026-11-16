@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>{{ title }}</title>
+<style>
+@media only screen and (max-width: 620px) {
+  .container { width: 100% !important; }
+  .px { padding-left: 18px !important; padding-right: 18px !important; }
+}
+@media (prefers-color-scheme: dark) {
+  .bg-page { background-color: #10161a !important; }
+  .bg-card { background-color: #1b2429 !important; }
+  .tx { color: #eef3f1 !important; }
+  .tx-muted { color: #aab6b1 !important; }
+  .line { border-color: #2d3a40 !important; }
+  .c-warn { color: #f0c75e !important; }
+  .c-danger { color: #ff9b92 !important; }
+  .c-ok { color: #7fd1ae !important; }
+  .link { color: #7fd1ae !important; }
+}
+</style>
+</head>
+<body class="bg-page" style="margin:0;padding:0;background-color:#f5f7f6;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all;">{{ preheader }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-page" style="background-color:#f5f7f6;">
+<tr>
+<td align="center" style="padding:24px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="container bg-card" style="width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;border:1px solid #e1e8e5;overflow:hidden;">
+<tr>
+<td style="background-color:#236b52;padding:16px 24px;" class="px">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td style="vertical-align:middle;padding-right:12px;"><img src="cid:{{ logo_cid }}" width="40" height="40" alt="Finance AI" style="display:block;border:0;border-radius:10px;"></td>
+<td style="vertical-align:middle;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:18px;font-weight:600;color:#ffffff;">{{ app_name }}</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td class="px tx" style="padding:24px 24px 8px 24px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#202b28;">
+{% block content %}{% endblock %}
+</td>
+</tr>
+<tr>
+<td class="px" style="padding:8px 24px 24px 24px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td class="line tx-muted" style="border-top:1px solid #e1e8e5;padding-top:14px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#5c6a66;">
+{{ footer_reason }}
+{% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" class="link" style="color:#236b52;text-decoration:underline;">Cancelar suscripción</a>{% endif %}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

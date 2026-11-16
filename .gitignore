@@ -21,3 +21,6 @@ Thumbs.db
 
 # Fictional local support credentials
 demo-data/
+
+# Local email previews written by the console sender
+var/
