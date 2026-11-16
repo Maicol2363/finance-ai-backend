@@ -35,6 +35,8 @@ The locked TOTP, authenticated-encryption, QR-generation and PDF libraries prepa
 
 ## Email notifications (EML-01..EML-03)
 
+Operations runbook (settings, deploy checklist, scheduler, secrets, reading the outbox): `docs/EMAIL-NOTIFICATIONS.md`.
+
 Branded HTML emails (with a plain-text alternative and an inline logo) are sent from a transactional outbox, so a notification is decided in the same database transaction as the event that causes it and delivered afterwards by a dispatcher.
 
 - Senders: `console` (development: writes `.eml` and a browsable `.html`, delivers nothing) and `smtp` (a sandbox inbox or any provider that offers SMTP). Configure them with the `FINANCE_AI_EMAIL_*` settings in `.env.example`. Without a real sender, production reports `notifications_unavailable` instead of pretending to deliver.
