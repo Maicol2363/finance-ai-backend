@@ -92,6 +92,10 @@ To re-send rows that failed only because of a provider problem you have fixed: `
 - Unsubscribe tokens are versioned HMACs of the account number: forged, edited or foreign-secret tokens are refused and give no hint whether an account exists.
 - Consent is checked again when sending, so turning email off, suspending an account or unverifying stops mail that was queued earlier.
 
+## Known deliverability limits (seen on 2026-11-16)
+
+A real run through a brand-new free Gmail sender delivered every message, but Gmail filed the verification code in **spam** and then blocked the inline logo in that view. A sender without its own authenticated domain is treated as suspicious, especially after several identical test messages. The fix is operational, not code: send from a domain you own with SPF, DKIM and DMARC through a transactional provider (see the deploy checklist), and until then tell people to check their spam folder. Re-check the logo once the sender is authenticated; it rendered correctly in the inbox.
+
 ## Not built yet
 
 - **Bounce and complaint handling.** v1 stops retrying a rejected recipient (`recipient_rejected`) but has no suppression list or provider webhook. Add it with the provider chosen, because the event format is provider specific.
