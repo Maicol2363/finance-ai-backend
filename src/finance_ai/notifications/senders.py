@@ -27,6 +27,7 @@ from finance_ai.notifications.messages import EmailMessage, EmailSendError, Send
 
 _HEADER_FORBIDDEN = re.compile(r"[\r\n]")
 _MAX_SUBJECT_LENGTH = 200
+_FOLD_AT = 78  # the library folds headers at this length unless told otherwise
 
 
 class EmailSender(Protocol):
@@ -58,7 +59,14 @@ def build_mime(message: EmailMessage) -> tuple[MimeMessage, str]:
         raise EmailSendError("invalid_header_subject", retryable=False)
     display_name = _clean_header("From", message.from_name)
 
-    mime = MimeMessage(policy=policy.SMTP)
+    # A URL header such as List-Unsubscribe has no spaces to fold at. At the usual 78-character
+    # limit the library would rewrite it as an RFC 2047 encoded word, which mail clients do not
+    # read in that header. The hard limit is 998, so allow it, but only when one is present.
+    unfoldable = any(
+        " " not in value and len(name) + len(value) + 2 > _FOLD_AT
+        for name, value in message.headers.items()
+    )
+    mime = MimeMessage(policy=policy.SMTP.clone(max_line_length=998) if unfoldable else policy.SMTP)
     mime["Subject"] = subject
     mime["From"] = formataddr((display_name, sender))
     mime["To"] = recipient

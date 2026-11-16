@@ -63,6 +63,29 @@ def test_extra_headers_such_as_list_unsubscribe_are_added() -> None:
     assert mime["List-Unsubscribe"] == "<https://x.example/u?t=1>" and mime["X-Kind"] == "budget"
 
 
+def test_a_long_unsubscribe_link_stays_a_plain_header_on_the_wire() -> None:
+    # A real link is longer than one folded line and has no spaces to fold at. It must not be
+    # turned into an RFC 2047 encoded word: mail clients read this header literally.
+    url = "https://api.finance.example.com/public/unsubscribe?token=v1.1234." + "A" * 43
+    mime, _ = build_mime(
+        message(
+            headers={
+                "List-Unsubscribe": f"<{url}>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            }
+        )
+    )
+
+    wire = mime.as_bytes()
+    header_block = wire.split(b"\r\n\r\n", 1)[0]
+    assert f"List-Unsubscribe: <{url}>".encode() in header_block.replace(b"\r\n ", b" ")
+    assert b"=?utf-8?" not in b"".join(
+        line for line in header_block.split(b"\r\n") if line.startswith(b"List-Unsubscribe")
+    )
+    parsed = message_from_bytes(wire, policy=policy.default)
+    assert str(parsed["List-Unsubscribe"]) == f"<{url}>"
+
+
 @pytest.mark.parametrize(
     ("field", "value", "code"),
     [
