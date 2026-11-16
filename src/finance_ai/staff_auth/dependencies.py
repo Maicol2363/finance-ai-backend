@@ -81,7 +81,7 @@ def _staff_mfa_policy() -> StaffMfaPolicy | None:
 
 
 def get_access_denial_recorder() -> AccessDenialRecorder:
-    return AccessDenialRecorder(get_session_factory(), SecurityAuditWriter())
+    return AccessDenialRecorder(get_session_factory())
 
 
 @lru_cache
