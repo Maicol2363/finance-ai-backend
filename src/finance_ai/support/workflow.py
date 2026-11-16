@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from finance_ai.audit.service import SecurityAuditWriter
@@ -32,21 +32,22 @@ class TicketWorkflow:
         event: str,
         correlation: str,
         *,
-        previous: str | None = None,
         status: str | None = None,
-        reason: str | None = None,
     ) -> None:
         session.add(
             SupportTicketActivity(
                 ticket_id=ticket_id,
                 actor_user_id=actor,
                 event_type=event,
-                previous_status=previous,
                 new_status=status,
-                internal_reason=reason,
                 created_at=datetime.now(UTC),
             )
         )
+        self._audit_event(session, ticket_id, actor, event, correlation)
+
+    def _audit_event(
+        self, session: Session, ticket_id: int, actor: int, event: str, correlation: str
+    ) -> None:
         self.audit.append(
             session,
             event_type="ticket.escalated" if event == "ticket_escalated" else f"support.{event}",
@@ -159,25 +160,21 @@ class TicketWorkflow:
         with self.factory.begin() as session:
             repo = SupportRepository(session)
             repo.require_role(actor, "support_agent")
-            ticket = repo.ticket(ticket_id, actor, staff=True, lock=True)
-            if ticket.status != "in_progress" or ticket.assigned_staff_user_id != actor:
+            # Preserve the existing 404 for tickets the agent cannot see. Lock the
+            # same row as message() so a terminal transition serializes with replies.
+            repo.ticket(ticket_id, actor, staff=True, lock=True)
+            statement = (
+                text("CALL sp_support_escalate_ticket(:actor, :ticket_id, :summary, NULL)")
+                if escalate
+                else text("CALL sp_support_resolve_ticket(:actor, :ticket_id, :summary, NULL)")
+            )
+            applied = session.execute(
+                statement, {"actor": actor, "ticket_id": ticket_id, "summary": summary}
+            ).scalar_one()
+            if not applied:
                 raise SupportTicketStateConflictError()
-            status = "escalated" if escalate else "resolved"
-            values: dict[str, object] = {"status": status}
-            if escalate:
-                values["originating_support_agent_id"] = actor
-            else:
-                values["resolution_summary"] = summary
-            session.execute(
-                update(SupportTicket).where(SupportTicket.id == ticket_id).values(**values)
-            )
-            self._event(
-                session,
-                ticket_id,
-                actor,
-                f"ticket_{status}",
-                correlation,
-                previous="in_progress",
-                status=status,
-                reason=summary if escalate else None,
-            )
+
+            # The procedure already inserted ticket history. Add the correlated
+            # security event in this transaction so an audit failure rolls back both.
+            event = "ticket_escalated" if escalate else "ticket_resolved"
+            self._audit_event(session, ticket_id, actor, event, correlation)

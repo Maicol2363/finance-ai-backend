@@ -42,7 +42,8 @@ class SupportTicketService:
         )
         if status is not None:
             statement = statement.where(SupportTicket.status == status.value)
-        statement = statement.order_by(SupportTicket.created_at.desc(), SupportTicket.id.desc())
+        # Migration 0023 also refreshes updated_at when a customer or agent sends a message.
+        statement = statement.order_by(SupportTicket.updated_at.desc(), SupportTicket.id.desc())
         with self._session_factory() as session:
             rows = session.execute(statement).mappings().all()
         return [TicketQueueItem.model_validate(row) for row in rows]
