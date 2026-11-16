@@ -16,7 +16,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-# --- Database routines (documented in aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md) -----------------------------
+# --- Database routines ---------------------------------------------------------------------
+# Documented in NullCorvus/finance-ai:
+# aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md
 
 # T1: no change may leave the system without an active administrator (ADM-02 #8-10). The
 # advisory lock serializes competing changes; the count then runs on a fresh READ COMMITTED
