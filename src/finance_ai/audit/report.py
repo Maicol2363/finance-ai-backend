@@ -226,6 +226,9 @@ def _styles() -> dict[str, ParagraphStyle]:
         "h2": ParagraphStyle("ReportSubheading", parent=base["Heading2"], fontSize=11.5),
         "body": ParagraphStyle("ReportBody", parent=base["BodyText"], fontSize=9.5, leading=13),
         "small": ParagraphStyle("ReportSmall", parent=base["BodyText"], fontSize=7, leading=8.5),
+        "event_id": ParagraphStyle(
+            "ReportEventId", parent=base["BodyText"], fontSize=6.5, leading=8.5
+        ),
         "note": ParagraphStyle(
             "ReportNote",
             parent=base["BodyText"],
@@ -488,7 +491,7 @@ def _event_table_section(
                 _p(target, styles["small"]),
                 _p(event.correlation_id or "No registrado", styles["small"]),
                 _p(context or "-", styles["small"]),
-                _p(str(event.event_id), styles["small"]),
+                _p(str(event.event_id), styles["event_id"]),
             ]
         )
     table = Table(
