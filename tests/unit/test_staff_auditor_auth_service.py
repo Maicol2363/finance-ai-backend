@@ -21,7 +21,6 @@ from finance_ai.core.errors import (
     MfaEnrollmentRequiredError,
     MfaUnavailableError,
     StaffAccessDeniedError,
-    StaffLoginInvalidError,
     StaffSessionExistsError,
     StaffSessionInvalidError,
 )
@@ -473,16 +472,18 @@ def test_auditor_refresh_keeps_mfa_assurance(setup: Setup) -> None:
     assert setup.service.resolve(access).id == AUDITOR_ID
 
 
-def test_support_and_admin_behaviour_is_unchanged(setup: Setup) -> None:
+def test_support_behaviour_is_unchanged_and_admin_needs_mfa(setup: Setup) -> None:
     outcome = setup.service.login(
         StaffLoginCommand(email="agent@example.test", password="correct-password"),
         correlation_id="support",
     )
     assert not isinstance(outcome, StaffMfaChallengeIssued)
     assert outcome[0].role == "support_agent"
-    with pytest.raises(StaffLoginInvalidError):
-        setup.service.login(
-            StaffLoginCommand(email="admin@example.test", password="correct-password"),
-            correlation_id="admin",
-        )
-    assert event_types(setup.factory) == ["staff.login", "staff.login_denied"]
+    # An administrator never receives a session from the password alone (SEC-01 #5).
+    admin_outcome = setup.service.login(
+        StaffLoginCommand(email="admin@example.test", password="correct-password"),
+        correlation_id="admin",
+    )
+    assert isinstance(admin_outcome, StaffMfaChallengeIssued)
+    assert admin_outcome.enrollment_required
+    assert event_types(setup.factory) == ["staff.login"]

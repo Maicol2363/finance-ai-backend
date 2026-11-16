@@ -24,7 +24,12 @@ from finance_ai.core.errors import (
     StaffSessionExpiredError,
     StaffSessionInvalidError,
 )
-from finance_ai.core.roles import MFA_REQUIRED_ROLES, STAFF_PORTAL_ROLES
+from finance_ai.core.roles import (
+    ADMIN_ROLE,
+    MFA_REQUIRED_ROLES,
+    PORTAL_ASSIGNABLE_STAFF_ROLES,
+    STAFF_PORTAL_ROLES,
+)
 from finance_ai.db.models.admin import AdminTotpFactor, StaffInvitation, StaffMfaChallenge
 from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.reference import Currency
@@ -55,9 +60,23 @@ class StaffMfaEnrollment:
 
 StaffLoginOutcome = StaffSessionIssue | StaffMfaChallengeIssued
 
-_ACCESS_LIFETIME = timedelta(minutes=15)
-_IDLE_LIFETIME = timedelta(minutes=30)
-_ABSOLUTE_LIFETIME = timedelta(hours=8)
+
+@dataclass(frozen=True)
+class StaffLifetimes:
+    """Access, idle and absolute lifetimes of one staff browser session."""
+
+    access: timedelta
+    idle: timedelta
+    absolute: timedelta
+
+
+STANDARD_STAFF_LIFETIMES = StaffLifetimes(
+    access=timedelta(minutes=15), idle=timedelta(minutes=30), absolute=timedelta(hours=8)
+)
+# SEC-01: administrators hold shorter sessions than the other staff roles.
+DEFAULT_ADMIN_LIFETIMES = StaffLifetimes(
+    access=timedelta(minutes=10), idle=timedelta(minutes=15), absolute=timedelta(hours=4)
+)
 
 
 class StaffSessionService:
@@ -72,7 +91,9 @@ class StaffSessionService:
         clock: Clock,
         audit_writer: SecurityAuditWriter,
         mfa: StaffMfaPolicy | None = None,
+        admin_lifetimes: StaffLifetimes = DEFAULT_ADMIN_LIFETIMES,
     ) -> None:
+        self._admin_lifetimes = admin_lifetimes
         self._session_factory = session_factory
         self._password_hasher = password_hasher
         self._credential_codec = credential_codec
@@ -100,7 +121,6 @@ class StaffSessionService:
         access = self._credential_codec.issue()
         refresh = self._credential_codec.issue()
         challenge = self._credential_codec.issue()
-        access_expires, idle_expires, absolute_expires = _initial_expiries(now)
 
         outcome: str | None = None
         result: StaffLoginOutcome | None = None
@@ -125,7 +145,7 @@ class StaffSessionService:
                     )
                 else:
                     account, role_name, _currency_code = user
-                    eligible = self._activation_is_authoritative(session, account)
+                    eligible = self._activation_is_authoritative(session, account, role_name)
                     if (
                         not account.is_active
                         or account.password_hash != snapshot.password_hash
@@ -148,9 +168,13 @@ class StaffSessionService:
                         else:
                             result = self._issue_mfa_challenge(session, account.id, challenge, now)
                     else:
+                        access_expires, idle_expires, absolute_expires = self._initial_expiries(
+                            role_name, now
+                        )
                         self._create_browser_session(
                             session,
                             account.id,
+                            account.role_id,
                             access,
                             refresh,
                             (access_expires, idle_expires, absolute_expires),
@@ -263,7 +287,6 @@ class StaffSessionService:
         now = self._clock.now()
         access = self._credential_codec.issue()
         refresh = self._credential_codec.issue()
-        expiries = _initial_expiries(now)
         outcome: str | None = None
         result: StaffSessionIssue | None = None
         try:
@@ -304,7 +327,6 @@ class StaffSessionService:
                             code=code,
                             access=access,
                             refresh=refresh,
-                            expiries=expiries,
                             now=now,
                             correlation_id=correlation_id,
                         )
@@ -473,9 +495,10 @@ class StaffSessionService:
                         context={"reason": "authority_changed"},
                     )
                 else:
+                    lifetimes = self._lifetimes_for(role_name)
                     absolute_expires = _utc(auth_session.absolute_expires_at)
-                    idle_expires = min(now + _IDLE_LIFETIME, absolute_expires)
-                    access_expires = min(now + _ACCESS_LIFETIME, idle_expires)
+                    idle_expires = min(now + lifetimes.idle, absolute_expires)
+                    access_expires = min(now + lifetimes.access, idle_expires)
                     credential.consumed_at = now
                     auth_session.access_token_hash = access.token_hash
                     auth_session.access_expires_at = access_expires
@@ -594,7 +617,6 @@ class StaffSessionService:
         code: str,
         access: IssuedCredential,
         refresh: IssuedCredential,
-        expiries: tuple[datetime, datetime, datetime],
         now: datetime,
         correlation_id: str,
     ) -> tuple[str, StaffSessionIssue | None]:
@@ -640,6 +662,8 @@ class StaffSessionService:
                 context={},
             )
         challenge.consumed_at = now
+        role_name = str(session.scalar(select(Role.name).where(Role.id == account.role_id)))
+        expiries = self._initial_expiries(role_name, now)
         self._audit_writer.append(
             session,
             event_type="auth.mfa_success",
@@ -651,7 +675,14 @@ class StaffSessionService:
             context={},
         )
         session_id = self._create_browser_session(
-            session, account.id, access, refresh, expiries, now=now, mfa_verified_at=now
+            session,
+            account.id,
+            account.role_id,
+            access,
+            refresh,
+            expiries,
+            now=now,
+            mfa_verified_at=now,
         )
         # SEC-02: for privileged roles a completed login means password plus MFA.
         self._audit_writer.append(
@@ -665,15 +696,26 @@ class StaffSessionService:
             context={},
         )
         access_expires, idle_expires, absolute_expires = expiries
-        role_name = session.scalar(select(Role.name).where(Role.id == account.role_id))
         return "verified", (
-            StaffSessionUser(id=account.id, email=account.email, role=str(role_name)),
+            StaffSessionUser(id=account.id, email=account.email, role=role_name),
             access.raw,
             refresh.raw,
             access_expires,
             idle_expires,
             absolute_expires,
         )
+
+    def _lifetimes_for(self, role_name: str) -> StaffLifetimes:
+        return self._admin_lifetimes if role_name == ADMIN_ROLE else STANDARD_STAFF_LIFETIMES
+
+    def _initial_expiries(
+        self, role_name: str, now: datetime
+    ) -> tuple[datetime, datetime, datetime]:
+        lifetimes = self._lifetimes_for(role_name)
+        absolute_expires = now + lifetimes.absolute
+        idle_expires = min(now + lifetimes.idle, absolute_expires)
+        access_expires = min(now + lifetimes.access, idle_expires)
+        return access_expires, idle_expires, absolute_expires
 
     def _require_mfa(self) -> StaffMfaPolicy:
         if self._mfa is None:
@@ -743,7 +785,7 @@ class StaffSessionService:
         if (
             not account.is_active
             or role_name not in MFA_REQUIRED_ROLES
-            or not self._activation_is_authoritative(session, account)
+            or not self._activation_is_authoritative(session, account, role_name)
         ):
             return None
         return account
@@ -782,6 +824,7 @@ class StaffSessionService:
     def _create_browser_session(
         session: Session,
         user_id: int,
+        role_id: int,
         access: IssuedCredential,
         refresh: IssuedCredential,
         expiries: tuple[datetime, datetime, datetime],
@@ -799,6 +842,7 @@ class StaffSessionService:
             absolute_expires_at=absolute_expires,
             last_renewed_at=now,
             mfa_verified_at=mfa_verified_at,
+            issued_role_id=role_id,
         )
         session.add(browser_session)
         session.flush()
@@ -818,27 +862,24 @@ class StaffSessionService:
         """Current active account, portal role, MFA assurance and authoritative activation."""
         if not account.is_active or role_name not in STAFF_PORTAL_ROLES:
             return False
+        # A session never carries authority across a role change (ADM-04 #7-8, SEC-01 #12).
+        if (
+            auth_session.issued_role_id is not None
+            and auth_session.issued_role_id != account.role_id
+        ):
+            return False
         # A session issued before a privileged role was assigned never gains MFA assurance.
         if role_name in MFA_REQUIRED_ROLES and auth_session.mfa_verified_at is None:
             return False
-        return self._activation_is_authoritative(session, account)
+        # D3: an administrator additionally needs a currently active authenticator, so a
+        # reset or disabled factor removes authority even from an otherwise valid session.
+        if role_name == ADMIN_ROLE and self._factor(session, account.id, "active") is None:
+            return False
+        return self._activation_is_authoritative(session, account, role_name)
 
     @staticmethod
-    def _activation_is_authoritative(session: Session, user: AppUser) -> bool:
-        return bool(
-            session.scalar(
-                select(StaffInvitation.id)
-                .join(Role, Role.id == StaffInvitation.role_id)
-                .where(
-                    StaffInvitation.activated_user_id == user.id,
-                    StaffInvitation.consumed_at.is_not(None),
-                    StaffInvitation.email == user.email,
-                    StaffInvitation.role_id == user.role_id,
-                    Role.name.in_(STAFF_PORTAL_ROLES),
-                )
-                .limit(1)
-            )
-        )
+    def _activation_is_authoritative(session: Session, user: AppUser, role_name: str) -> bool:
+        return staff_activation_is_authoritative(session, user, role_name)
 
     def _write_login_denied(
         self, session: Session, user_id: int, reason: str, correlation_id: str
@@ -867,15 +908,28 @@ class StaffSessionService:
             raise AuditUnavailableError() from exc
 
 
-def _initial_expiries(now: datetime) -> tuple[datetime, datetime, datetime]:
-    access_expires = now + _ACCESS_LIFETIME
-    idle_expires = now + _IDLE_LIFETIME
-    absolute_expires = now + _ABSOLUTE_LIFETIME
-    if idle_expires > absolute_expires:
-        idle_expires = absolute_expires
-    if access_expires > idle_expires:
-        access_expires = idle_expires
-    return access_expires, idle_expires, absolute_expires
+def staff_activation_is_authoritative(session: Session, user: AppUser, role_name: str) -> bool:
+    """Whether the account's staff role is backed by a trusted provisioning path."""
+    # Administrators are provisioned by the controlled backend procedure and never through an
+    # invitation; their authority is the current role plus MFA.
+    if role_name == ADMIN_ROLE:
+        return True
+    return bool(
+        session.scalar(
+            select(StaffInvitation.id)
+            .join(Role, Role.id == StaffInvitation.role_id)
+            .where(
+                StaffInvitation.activated_user_id == user.id,
+                StaffInvitation.consumed_at.is_not(None),
+                StaffInvitation.email == user.email,
+                # The invitation proves the account was provisioned through the portal; the
+                # account's current role (changed by ADM-04) is checked by the caller. The
+                # invitation itself can only ever name a portal-assignable role.
+                Role.name.in_(PORTAL_ASSIGNABLE_STAFF_ROLES),
+            )
+            .limit(1)
+        )
+    )
 
 
 def _utc(value: datetime) -> datetime:

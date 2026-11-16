@@ -32,12 +32,20 @@ _STAFF_AUTH_PATHS = {
     "/api/v1/staff/auth/mfa/enrollment",
     "/api/v1/staff/auth/mfa/verify",
     "/api/v1/staff/auth/mfa/cancel",
+    "/api/v1/staff/auth/mfa/reset",
+    "/api/v1/staff/auth/mfa/recovery-codes",
+    "/api/v1/staff/auth/activate",
 }
 _STAFF_AUDIT_PREFIX = "/api/v1/staff/audit/"
+_STAFF_ADMIN_PREFIX = "/api/v1/staff/admin/"
 
 
 def _is_staff_audit_path(path: str) -> bool:
     return path.startswith(_STAFF_AUDIT_PREFIX)
+
+
+def _is_staff_admin_path(path: str) -> bool:
+    return path.startswith(_STAFF_ADMIN_PREFIX)
 
 
 def _is_account_path(path: str) -> bool:
@@ -176,6 +184,7 @@ class RequestGuardMiddleware:
             or (method == "PATCH" and _is_expense_path(path))
             or (method == "POST" and _is_capture_path(path))
             or (method == "POST" and _is_staff_audit_path(path))
+            or (method in {"POST", "PATCH"} and _is_staff_admin_path(path))
         )
         is_receipt_upload = method == "POST" and _is_receipt_upload_path(path)
         body_limit = (
@@ -277,6 +286,7 @@ class RequestGuardMiddleware:
                     or _is_history_path(path)
                     or _is_capture_path(path)
                     or _is_staff_audit_path(path)
+                    or _is_staff_admin_path(path)
                 ):
                     response_headers.append((b"cache-control", b"no-store"))
                     response_headers.append((b"pragma", b"no-cache"))

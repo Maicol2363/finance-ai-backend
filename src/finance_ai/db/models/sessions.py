@@ -46,6 +46,8 @@ class UserSession(Base):
     )
     last_renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     mfa_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Role the staff session was issued for; a later role change denies the session.
+    issued_role_id: Mapped[int | None] = mapped_column(ForeignKey("role.id", ondelete="SET NULL"))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revocation_reason: Mapped[str | None] = mapped_column(String(32))
 

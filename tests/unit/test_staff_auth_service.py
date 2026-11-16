@@ -10,6 +10,7 @@ from finance_ai.audit.service import SecurityAuditWriter
 from finance_ai.auth.credentials import CredentialCodec
 from finance_ai.core.errors import (
     AuditUnavailableError,
+    MfaUnavailableError,
     StaffAccessDeniedError,
     StaffAuthenticationRequiredError,
     StaffLoginInvalidError,
@@ -191,31 +192,17 @@ def test_invalid_login_uses_generic_denial_and_writes_no_email_to_audit(
         assert all(event.context == {"reason": "invalid_credentials"} for event in events)
 
 
-def test_login_denies_admin_and_requires_authoritative_activation_record(
+def test_login_fails_closed_for_admin_without_mfa_and_requires_activation_record(
     service_setup: tuple[StaffSessionService, sessionmaker[Session], dict[str, int]],
 ) -> None:
-    service, factory, user_ids = service_setup
-    with factory() as session, session.begin():
-        admin = session.get(AppUser, user_ids["admin"])
-        assert admin is not None
-        session.add(
-            StaffInvitation(
-                id=2,
-                email=admin.email,
-                role_id=2,
-                token_hash="b" * 64,
-                created_by_admin_user_id=admin.id,
-                created_at=FrozenClock().now(),
-                expires_at=datetime(2027, 1, 1, tzinfo=UTC),
-                consumed_at=FrozenClock().now(),
-                activated_user_id=admin.id,
-            )
-        )
-    with pytest.raises(StaffLoginInvalidError):
+    service, factory, _user_ids = service_setup
+    # SEC-01: without a configured authenticator policy an administrator gets no session.
+    with pytest.raises(MfaUnavailableError):
         service.login(
             StaffLoginCommand(email="admin@example.test", password="correct-password"),
             correlation_id="test-correlation-2",
         )
+    # A support agent without a consumed invitation is not an authoritative staff account.
     with factory() as session, session.begin():
         session.query(StaffInvitation).filter(StaffInvitation.activated_user_id == 2).delete()
     with pytest.raises(StaffLoginInvalidError):

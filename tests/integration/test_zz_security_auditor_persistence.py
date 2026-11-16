@@ -28,8 +28,8 @@ from finance_ai.core.config import get_settings
 from finance_ai.core.errors import (
     MfaChallengeInvalidError,
     MfaCodeInvalidError,
-    StaffAccessDeniedError,
     StaffSessionExistsError,
+    StaffSessionInvalidError,
 )
 from finance_ai.db.models.admin import AdminTotpFactor, StaffInvitation
 from finance_ai.db.models.audit import SecurityAuditEvent
@@ -286,7 +286,9 @@ def test_postgres_suspension_denies_existing_auditor_session_immediately() -> No
             update(AppUser).where(AppUser.id == people["auditor"][0]).values(is_active=False)
         )
         session.commit()
-    with pytest.raises(StaffAccessDeniedError):
+    # Trigger T2 revokes the account's live sessions in the same statement as the suspension,
+    # so the stale credential is already invalid (401) rather than failing the authority check.
+    with pytest.raises(StaffSessionInvalidError):
         service.resolve(access)
 
 

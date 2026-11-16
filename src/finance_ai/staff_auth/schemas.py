@@ -56,8 +56,47 @@ class StaffMfaEnrollmentView(BaseModel):
     qr_svg_data_url: str
 
 
+class StaffMfaResetRequest(BaseModel):
+    """Lost-device recovery or voluntary authenticator replacement (exactly one proof)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=1, max_length=320)
+    password: SecretStr = Field(min_length=1, max_length=128, json_schema_extra={"writeOnly": True})
+    recovery_code: SecretStr | None = Field(
+        default=None, min_length=16, max_length=32, json_schema_extra={"writeOnly": True}
+    )
+    code: SecretStr | None = Field(
+        default=None, min_length=6, max_length=6, json_schema_extra={"writeOnly": True}
+    )
+
+
+class StaffRecoveryCodesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: SecretStr = Field(min_length=1, max_length=128, json_schema_extra={"writeOnly": True})
+
+
+class StaffRecoveryCodesView(BaseModel):
+    """Single-use codes shown once; only their hashes are stored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recovery_codes: list[str]
+
+
 class StaffMfaVerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # Six digits are enforced by the verifier; the value is never echoed in errors or logs.
     code: SecretStr = Field(min_length=6, max_length=6, json_schema_extra={"writeOnly": True})
+
+
+class StaffActivationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: SecretStr = Field(min_length=1, max_length=64, json_schema_extra={"writeOnly": True})
+    password: SecretStr = Field(min_length=1, max_length=128, json_schema_extra={"writeOnly": True})
+    password_confirmation: SecretStr = Field(
+        min_length=1, max_length=128, json_schema_extra={"writeOnly": True}
+    )

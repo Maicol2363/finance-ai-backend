@@ -75,6 +75,39 @@
         "title": "AccountListResponse",
         "type": "object"
       },
+      "AccountLookupRequest": {
+        "additionalProperties": false,
+        "description": "Exactly one exact key. The email travels in the body, never in a URL that proxies log.",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          }
+        },
+        "title": "AccountLookupRequest",
+        "type": "object"
+      },
       "AccountRef": {
         "additionalProperties": false,
         "properties": {
@@ -213,6 +246,129 @@
           }
         },
         "title": "AccountUpdateRequest",
+        "type": "object"
+      },
+      "AdminAccount": {
+        "additionalProperties": false,
+        "description": "ADM-01 allowlisted login-account metadata (never a financial account).",
+        "properties": {
+          "account_type": {
+            "const": "login_account",
+            "default": "login_account",
+            "title": "Account Type",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "registered_at": {
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "suspended"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suspension": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SuspensionRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "status",
+          "registered_at"
+        ],
+        "title": "AdminAccount",
+        "type": "object"
+      },
+      "AdminCase": {
+        "additionalProperties": false,
+        "description": "Administrative case context: staff-only reasons appear here and never to customers.",
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/CustomerMetadata"
+          },
+          "escalation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Reason"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/TicketHistory"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/TicketMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "originating_agent": {
+            "$ref": "#/components/schemas/EscalationOrigin"
+          },
+          "owned_by_me": {
+            "title": "Owned By Me",
+            "type": "boolean"
+          },
+          "owner_admin_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Admin Id"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/CustomerTicket"
+          }
+        },
+        "required": [
+          "ticket",
+          "customer",
+          "messages",
+          "history",
+          "escalation_reason",
+          "owner_admin_id",
+          "owned_by_me",
+          "originating_agent"
+        ],
+        "title": "AdminCase",
         "type": "object"
       },
       "AgentTicketCreate": {
@@ -925,6 +1081,7 @@
                   "account",
                   "audit_report",
                   "protected_resource",
+                  "staff_invitation",
                   "staff_session",
                   "support_ticket"
                 ],
@@ -1739,6 +1896,37 @@
         "title": "CategoryUpdateRequest",
         "type": "object"
       },
+      "ChangeStaffRoleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "support_agent",
+              "security_auditor"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "confirm"
+        ],
+        "title": "ChangeStaffRoleRequest",
+        "type": "object"
+      },
+      "ClaimTicketRequest": {
+        "additionalProperties": false,
+        "description": "Claiming carries no data; the owner is always the authenticated administrator.",
+        "properties": {},
+        "title": "ClaimTicketRequest",
+        "type": "object"
+      },
       "Clarification": {
         "additionalProperties": false,
         "description": "The single short question asked when the text is genuinely ambiguous.",
@@ -1952,6 +2140,31 @@
           "name"
         ],
         "title": "CreateIncomeSourceRequest",
+        "type": "object"
+      },
+      "CreateStaffInvitationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "support_agent",
+              "security_auditor"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "title": "CreateStaffInvitationRequest",
         "type": "object"
       },
       "CurrencyResponse": {
@@ -2194,6 +2407,92 @@
         "additionalProperties": false,
         "properties": {},
         "title": "EmptyStaffRequest",
+        "type": "object"
+      },
+      "EscalatedTicketItem": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "originating_agent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Originating Agent Id"
+          },
+          "owned_by_me": {
+            "title": "Owned By Me",
+            "type": "boolean"
+          },
+          "owner_admin_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Admin Id"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "category",
+          "created_at",
+          "owner_admin_id",
+          "originating_agent_id",
+          "owned_by_me"
+        ],
+        "title": "EscalatedTicketItem",
+        "type": "object"
+      },
+      "EscalationOrigin": {
+        "additionalProperties": false,
+        "description": "Who escalated the case and whether Support can take it back directly.",
+        "properties": {
+          "can_receive_return": {
+            "title": "Can Receive Return",
+            "type": "boolean"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "user_id",
+          "can_receive_return"
+        ],
+        "title": "EscalationOrigin",
         "type": "object"
       },
       "ExpenseCreateRequest": {
@@ -3645,6 +3944,21 @@
         "title": "ProposalStatus",
         "type": "string"
       },
+      "ReactivateAccountRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "ReactivateAccountRequest",
+        "type": "object"
+      },
       "ReceiptExtraction": {
         "additionalProperties": false,
         "description": "Structured receipt extraction output with strict bounds and validation.",
@@ -4323,6 +4637,52 @@
         "title": "RenewableCredentialRequest",
         "type": "object"
       },
+      "ReturnTicketRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ReturnTicketRequest",
+        "type": "object"
+      },
+      "ReturnTicketResult": {
+        "additionalProperties": false,
+        "properties": {
+          "assigned_staff_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Staff User Id"
+          },
+          "status": {
+            "enum": [
+              "in_progress",
+              "open"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "assigned_staff_user_id"
+        ],
+        "title": "ReturnTicketResult",
+        "type": "object"
+      },
       "ScheduleType": {
         "enum": [
           "recurring",
@@ -4330,6 +4690,99 @@
         ],
         "title": "ScheduleType",
         "type": "string"
+      },
+      "StaffAccountView": {
+        "additionalProperties": false,
+        "properties": {
+          "account_type": {
+            "const": "login_account",
+            "default": "login_account",
+            "title": "Account Type",
+            "type": "string"
+          },
+          "assignable_roles": {
+            "items": {
+              "enum": [
+                "support_agent",
+                "security_auditor"
+              ],
+              "type": "string"
+            },
+            "title": "Assignable Roles",
+            "type": "array"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "registered_at": {
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "suspended"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "status",
+          "registered_at",
+          "assignable_roles"
+        ],
+        "title": "StaffAccountView",
+        "type": "object"
+      },
+      "StaffActivationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "password_confirmation": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password Confirmation",
+            "type": "string",
+            "writeOnly": true
+          },
+          "token": {
+            "format": "password",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "password_confirmation"
+        ],
+        "title": "StaffActivationRequest",
+        "type": "object"
       },
       "StaffConversation": {
         "properties": {
@@ -4361,6 +4814,46 @@
           "history"
         ],
         "title": "StaffConversation",
+        "type": "object"
+      },
+      "StaffInvitationCreated": {
+        "additionalProperties": false,
+        "description": "Returned once to the administrator; only the token hash is stored (D1).",
+        "properties": {
+          "activation_token": {
+            "title": "Activation Token",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "invitation_id": {
+            "title": "Invitation Id",
+            "type": "integer"
+          },
+          "role": {
+            "enum": [
+              "support_agent",
+              "security_auditor"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "email",
+          "role",
+          "expires_at",
+          "activation_token"
+        ],
+        "title": "StaffInvitationCreated",
         "type": "object"
       },
       "StaffLoginRequest": {
@@ -4450,6 +4943,64 @@
         "title": "StaffMfaEnrollmentView",
         "type": "object"
       },
+      "StaffMfaResetRequest": {
+        "additionalProperties": false,
+        "description": "Lost-device recovery or voluntary authenticator replacement (exactly one proof).",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 6,
+                "minLength": 6,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "writeOnly": true
+          },
+          "email": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "recovery_code": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 32,
+                "minLength": 16,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Code",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "StaffMfaResetRequest",
+        "type": "object"
+      },
       "StaffMfaVerifyRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4466,6 +5017,42 @@
           "code"
         ],
         "title": "StaffMfaVerifyRequest",
+        "type": "object"
+      },
+      "StaffRecoveryCodesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "format": "password",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "StaffRecoveryCodesRequest",
+        "type": "object"
+      },
+      "StaffRecoveryCodesView": {
+        "additionalProperties": false,
+        "description": "Single-use codes shown once; only their hashes are stored.",
+        "properties": {
+          "recovery_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recovery Codes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "recovery_codes"
+        ],
+        "title": "StaffRecoveryCodesView",
         "type": "object"
       },
       "StaffSessionUser": {
@@ -4521,6 +5108,54 @@
           "absolute_expires_at"
         ],
         "title": "StaffSessionView",
+        "type": "object"
+      },
+      "SuspendAccountRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "confirm"
+        ],
+        "title": "SuspendAccountRequest",
+        "type": "object"
+      },
+      "SuspensionRecord": {
+        "additionalProperties": false,
+        "description": "Staff-only suspension evidence for a suspended login account.",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "suspended_at": {
+            "format": "date-time",
+            "title": "Suspended At",
+            "type": "string"
+          },
+          "suspended_by_user_id": {
+            "title": "Suspended By User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reason",
+          "suspended_at",
+          "suspended_by_user_id"
+        ],
+        "title": "SuspensionRecord",
         "type": "object"
       },
       "TextCaptureConfirmation": {
@@ -10810,6 +11445,1369 @@
         ]
       }
     },
+    "/api/v1/staff/admin/accounts/lookup": {
+      "post": {
+        "description": "Exact email or account ID lookup of one customer or staff login account, sent in the request body so the address never appears in a URL or proxy access log. Returns allowlisted metadata only: never balances, transactions, receipts, credentials or session values. The record is a login account, not a financial account.",
+        "operationId": "lookup_account_api_v1_staff_admin_accounts_lookup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountLookupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Look Up a Login Account (ADM-01)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/accounts/{account_id}": {
+      "get": {
+        "operationId": "get_account_api_v1_staff_admin_accounts__account_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Account Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "View a Login Account (ADM-01)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/accounts/{account_id}/reactivate": {
+      "post": {
+        "description": "Restores access eligibility only. Sessions issued before the suspension are never restored; the person must sign in again (and complete MFA where required).",
+        "operationId": "reactivate_account_api_v1_staff_admin_accounts__account_id__reactivate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Account Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactivateAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Reactivate a Suspended Login Account (ADM-02)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/accounts/{account_id}/suspend": {
+      "post": {
+        "description": "Requires explicit confirmation and a non-blank reason. Revokes the account's live sessions immediately. Never the acting administrator and never the last active administrator. Financial and support data are preserved.",
+        "operationId": "suspend_account_api_v1_staff_admin_accounts__account_id__suspend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Account Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Suspend a Login Account (ADM-02)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/staff/invitations": {
+      "post": {
+        "description": "Creates an expiring, single-use invitation for a support agent or security auditor. The one-time activation token is returned once in this response and never stored in clear text; the invitee chooses their own password at activation. The admin role cannot be requested (an unknown or forged role is rejected).",
+        "operationId": "create_staff_invitation_api_v1_staff_admin_staff_invitations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStaffInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffInvitationCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Invite a Staff Member (ADM-03)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/staff/{staff_id}": {
+      "get": {
+        "operationId": "get_staff_account_api_v1_staff_admin_staff__staff_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Staff Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAccountView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Inspect a Staff Account Role (ADM-04)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/staff/{staff_id}/role": {
+      "post": {
+        "description": "Switches a staff account between support_agent and security_auditor after explicit confirmation. Own role, administrators and customers cannot be changed here. The live sessions of that person are revoked and the change is audited with the previous and new role.",
+        "operationId": "change_staff_role_api_v1_staff_admin_staff__staff_id__role_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Staff Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeStaffRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAccountView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Change a Staff Role (ADM-04)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/tickets/escalated": {
+      "get": {
+        "description": "Escalated cases only, oldest first, bounded to 100 rows.",
+        "operationId": "list_escalated_tickets_api_v1_staff_admin_tickets_escalated_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "unclaimed",
+                "mine"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EscalatedTicketItem"
+                  },
+                  "title": "Response List Escalated Tickets Api V1 Staff Admin Tickets Escalated Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Escalated Tickets (ADM-05)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/tickets/{ticket_id}": {
+      "get": {
+        "description": "Escalation reason, allowed customer metadata, conversation and activity history of one escalated ticket. No transactions, balances, receipts or credentials are exposed.",
+        "operationId": "get_escalated_case_api_v1_staff_admin_tickets__ticket_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCase"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "View an Escalated Case (ADM-05)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/tickets/{ticket_id}/claim": {
+      "post": {
+        "description": "Exactly one administrator can own a case; a concurrent claim gets a 409.",
+        "operationId": "claim_escalated_case_api_v1_staff_admin_tickets__ticket_id__claim_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCase"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Claim an Escalated Case (ADM-05)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/tickets/{ticket_id}/messages": {
+      "post": {
+        "description": "Customer-visible message in the existing ticket conversation, only by the owning administrator. There are no private notes or internal messaging.",
+        "operationId": "reply_to_customer_api_v1_staff_admin_tickets__ticket_id__messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Reply to the Customer (ADM-05)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/tickets/{ticket_id}/resolve": {
+      "post": {
+        "description": "Requires a resolution summary, which the owning active customer can read.",
+        "operationId": "resolve_escalated_case_api_v1_staff_admin_tickets__ticket_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Resolve an Escalated Case (ADM-05)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
+    "/api/v1/staff/admin/tickets/{ticket_id}/return": {
+      "post": {
+        "description": "Requires a staff-only return reason. If the originating agent is still an active support agent the case returns to that agent as in_progress; otherwise it returns unassigned to the open queue. Status and assignment change atomically.",
+        "operationId": "return_case_to_support_api_v1_staff_admin_tickets__ticket_id__return_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnTicketResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Return a Case to Support (ADM-05)",
+        "tags": [
+          "Administrator"
+        ]
+      }
+    },
     "/api/v1/staff/audit/catalog": {
       "get": {
         "operationId": "audit_catalog_api_v1_staff_audit_catalog_get",
@@ -11020,6 +13018,7 @@
                     "account",
                     "audit_report",
                     "protected_resource",
+                    "staff_invitation",
                     "staff_session",
                     "support_ticket"
                   ],
@@ -11577,6 +13576,7 @@
                     "account",
                     "audit_report",
                     "protected_resource",
+                    "staff_invitation",
                     "staff_session",
                     "support_ticket"
                   ],
@@ -11692,9 +13692,84 @@
         ]
       }
     },
+    "/api/v1/staff/auth/activate": {
+      "post": {
+        "description": "Public and rate limited. Consumes a single-use invitation token and creates the staff account with the password the invitee chooses. Unknown, expired and replayed tokens all return the same 400. No session is issued; sign in afterwards.",
+        "operationId": "staff_activate_api_v1_staff_auth_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffActivationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Activate an Invited Staff Account (ADM-03)",
+        "tags": [
+          "Staff browser authentication"
+        ]
+      }
+    },
     "/api/v1/staff/auth/login": {
       "post": {
-        "description": "Verifies the staff password. Support Agents receive a session (200). Accounts whose role requires SEC-01 MFA (security_auditor) receive 202 with a short-lived, HttpOnly challenge cookie and no staff authority until TOTP verification succeeds.",
+        "description": "Verifies the staff password. Support Agents receive a session (200). Accounts whose role requires SEC-01 MFA (admin, security_auditor) receive 202 with a short-lived, HttpOnly challenge cookie and no staff authority until TOTP verification succeeds.",
         "operationId": "staff_login_api_v1_staff_auth_login_post",
         "requestBody": {
           "content": {
@@ -12041,6 +14116,170 @@
           }
         },
         "summary": "Start Staff Authenticator Enrollment",
+        "tags": [
+          "Staff browser authentication"
+        ]
+      }
+    },
+    "/api/v1/staff/auth/mfa/recovery-codes": {
+      "post": {
+        "description": "For an MFA-verified privileged session, re-confirms the password and replaces the account's single-use recovery codes. The codes are returned once and stored hashed.",
+        "operationId": "staff_recovery_codes_api_v1_staff_auth_mfa_recovery_codes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffRecoveryCodesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRecoveryCodesView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Issue Staff Recovery Codes",
+        "tags": [
+          "Staff browser authentication"
+        ]
+      }
+    },
+    "/api/v1/staff/auth/mfa/reset": {
+      "post": {
+        "description": "Verifies the account password plus exactly one proof: a single-use recovery code (lost device) or the current authenticator code (replacement). On success every authenticator, recovery code and live session of the account is invalidated and an enrollment challenge cookie is issued. Failures share one generic response.",
+        "operationId": "staff_mfa_reset_api_v1_staff_auth_mfa_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffMfaResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMfaChallengeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Recover or Replace the Staff Authenticator",
         "tags": [
           "Staff browser authentication"
         ]

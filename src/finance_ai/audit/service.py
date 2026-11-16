@@ -33,6 +33,11 @@ REPORT_EXPORT_CONTEXT_KEYS: Final[frozenset[str]] = frozenset(
 _DEFAULT_CONTEXT_KEYS: Final[frozenset[str]] = frozenset({"reason"})
 _CONTEXT_KEYS_BY_EVENT: Final[dict[str, frozenset[str]]] = {
     "access.denied": frozenset({"reason", "resource"}),
+    # ADM-04: the role.changed event carries previous and new role only.
+    "role.changed": frozenset({"previous_role", "new_role"}),
+    # ADM-03: the staff role being granted; never the invitation token or the email address.
+    "staff.created": frozenset({"new_role"}),
+    "staff.activated": frozenset({"new_role"}),
     "audit.report_exported": REPORT_EXPORT_CONTEXT_KEYS,
 }
 _ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
@@ -47,18 +52,33 @@ _ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         "support.message_sent",
         "ticket.escalated",
         "support.ticket_resolved",
+        "support.ticket_returned",
         "support.customer_lookup",
         "auth.login_success",
         "auth.mfa_success",
         "auth.mfa_failed",
         "auth.mfa_enrolled",
+        "auth.mfa_recovered",
+        "auth.mfa_replaced",
         "access.denied",
         "audit.report_exported",
+        "account.suspended",
+        "account.reactivated",
+        "staff.created",
+        "staff.activated",
+        "role.changed",
     }
 )
 _ALLOWED_RESULTS: Final[frozenset[str]] = frozenset({"success", "denied", "failure"})
 _ALLOWED_TARGET_TYPES: Final[frozenset[str]] = frozenset(
-    {"staff_session", "support_ticket", "account", "audit_report", "protected_resource"}
+    {
+        "staff_session",
+        "support_ticket",
+        "account",
+        "audit_report",
+        "protected_resource",
+        "staff_invitation",
+    }
 )
 _MAX_CONTEXT_VALUE_LENGTH: Final = 128
 

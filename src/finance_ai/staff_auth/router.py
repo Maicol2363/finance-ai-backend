@@ -8,24 +8,35 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from finance_ai.auth.dependencies import get_session_rate_limiter
-from finance_ai.core.errors import ProblemResponse
+from finance_ai.core.errors import ProblemResponse, StaffAccessDeniedError
 from finance_ai.core.rate_limit import AuthRateLimiter
+from finance_ai.core.roles import MFA_REQUIRED_ROLES
+from finance_ai.staff_auth.activation import StaffActivationService
 from finance_ai.staff_auth.dependencies import (
     StaffCookieSettings,
+    enforce_staff_activation_limit,
     enforce_staff_mfa_limit,
+    enforce_staff_recovery_limit,
     get_staff_access_user,
+    get_staff_activation_service,
+    get_staff_recovery_service,
     get_staff_session_service,
     require_staff_cookie_transport,
     require_staff_request_boundary,
     staff_cookie_names,
     staff_mfa_cookie_name,
 )
+from finance_ai.staff_auth.recovery import StaffRecoveryService
 from finance_ai.staff_auth.schemas import (
+    StaffActivationRequest,
     StaffLoginCommand,
     StaffLoginRequest,
     StaffMfaChallengeView,
     StaffMfaEnrollmentView,
+    StaffMfaResetRequest,
     StaffMfaVerifyRequest,
+    StaffRecoveryCodesRequest,
+    StaffRecoveryCodesView,
     StaffSessionUser,
     StaffSessionView,
 )
@@ -132,7 +143,7 @@ def _clear_session_cookies(response: Response, cookie_settings: StaffCookieSetti
     response_model=StaffSessionView,
     description=(
         "Verifies the staff password. Support Agents receive a session (200). Accounts whose "
-        "role requires SEC-01 MFA (security_auditor) receive 202 with a short-lived, "
+        "role requires SEC-01 MFA (admin, security_auditor) receive 202 with a short-lived, "
         "HttpOnly challenge cookie and no staff authority until TOTP verification succeeds."
     ),
     responses={
@@ -385,6 +396,124 @@ def staff_mfa_verify(
         cookie_settings=cookie_settings,
     )
     return _session_view(user, access_expires_at, idle_expires_at, absolute_expires_at)
+
+
+@router.post(
+    "/mfa/reset",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=StaffMfaChallengeView,
+    summary="Recover or Replace the Staff Authenticator",
+    description=(
+        "Verifies the account password plus exactly one proof: a single-use recovery code "
+        "(lost device) or the current authenticator code (replacement). On success every "
+        "authenticator, recovery code and live session of the account is invalidated and an "
+        "enrollment challenge cookie is issued. Failures share one generic response."
+    ),
+    responses={
+        401: {"model": ProblemResponse},
+        415: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+        429: {"model": ProblemResponse},
+        503: {"model": ProblemResponse},
+    },
+)
+def staff_mfa_reset(
+    payload: StaffMfaResetRequest,
+    request: Request,
+    _: Annotated[None, Depends(require_staff_request_boundary)],
+    cookie_settings: Annotated[StaffCookieSettings, Depends(require_staff_cookie_transport)],
+    _limit: Annotated[None, Depends(enforce_staff_recovery_limit)],
+    service: Annotated[StaffRecoveryService, Depends(get_staff_recovery_service)],
+    limiter: Annotated[AuthRateLimiter, Depends(get_session_rate_limiter)],
+) -> JSONResponse:
+    client_key = request.client.host if request.client is not None else "unknown"
+    limiter.check_login(client_key=client_key, normalized_email=payload.email.strip().lower())
+    outcome = service.reset_authenticator(
+        email=payload.email,
+        password=payload.password.get_secret_value(),
+        recovery_code=(
+            None if payload.recovery_code is None else payload.recovery_code.get_secret_value()
+        ),
+        totp_code=None if payload.code is None else payload.code.get_secret_value(),
+        correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
+    )
+    response = JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=StaffMfaChallengeView(
+            enrollment_required=outcome.enrollment_required,
+            challenge_expires_at=outcome.expires_at,
+        ).model_dump(mode="json"),
+    )
+    _clear_session_cookies(response, cookie_settings)
+    _set_mfa_cookie(response, outcome.raw_challenge, outcome.expires_at, cookie_settings)
+    return response
+
+
+@router.post(
+    "/mfa/recovery-codes",
+    response_model=StaffRecoveryCodesView,
+    summary="Issue Staff Recovery Codes",
+    description=(
+        "For an MFA-verified privileged session, re-confirms the password and replaces the "
+        "account's single-use recovery codes. The codes are returned once and stored hashed."
+    ),
+    responses={
+        401: {"model": ProblemResponse},
+        403: {"model": ProblemResponse},
+        415: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+        503: {"model": ProblemResponse},
+    },
+)
+def staff_recovery_codes(
+    payload: StaffRecoveryCodesRequest,
+    request: Request,
+    _: Annotated[None, Depends(require_staff_request_boundary)],
+    user: Annotated[StaffSessionUser, Depends(get_staff_access_user)],
+    service: Annotated[StaffRecoveryService, Depends(get_staff_recovery_service)],
+) -> StaffRecoveryCodesView:
+    if user.role not in MFA_REQUIRED_ROLES:
+        raise StaffAccessDeniedError()
+    codes = service.issue_recovery_codes(
+        user.id,
+        payload.password.get_secret_value(),
+        correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
+    )
+    return StaffRecoveryCodesView(recovery_codes=codes)
+
+
+@router.post(
+    "/activate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Activate an Invited Staff Account (ADM-03)",
+    description=(
+        "Public and rate limited. Consumes a single-use invitation token and creates the staff "
+        "account with the password the invitee chooses. Unknown, expired and replayed tokens "
+        "all return the same 400. No session is issued; sign in afterwards."
+    ),
+    responses={
+        400: {"model": ProblemResponse},
+        415: {"model": ProblemResponse},
+        422: {"model": ProblemResponse},
+        429: {"model": ProblemResponse},
+        503: {"model": ProblemResponse},
+    },
+)
+def staff_activate(
+    payload: StaffActivationRequest,
+    request: Request,
+    _: Annotated[None, Depends(require_staff_request_boundary)],
+    _limit: Annotated[None, Depends(enforce_staff_activation_limit)],
+    service: Annotated[StaffActivationService, Depends(get_staff_activation_service)],
+) -> Response:
+    service.activate(
+        token=payload.token.get_secret_value(),
+        password=payload.password.get_secret_value(),
+        password_confirmation=payload.password_confirmation.get_secret_value(),
+        correlation_id=str(getattr(request.state, "correlation_id", "unavailable")),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
