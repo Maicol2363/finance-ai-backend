@@ -195,10 +195,10 @@ FINANCE_AI_TEST_DATABASE_URL=postgresql+psycopg://USUARIO:CLAVE@127.0.0.1:5432/f
 uv run pip-audit
 ```
 
-Resultado de la entrega: 924 pruebas pasan, 2 fallan por una causa previa e independiente
+Resultado de la entrega: 932 pruebas pasan, 2 fallan por una causa previa e independiente
 (`test_text_capture_persistence`, fecha en el reintento de confirmación), cobertura 92 %; Ruff, mypy,
-`alembic check`, deriva de OpenAPI y `pip-audit` sin hallazgos. Staff-web: 229 pruebas, cobertura de
-líneas 94,9 %.
+`alembic check`, deriva de OpenAPI y `pip-audit` sin hallazgos. Staff-web: 254 pruebas, cobertura de
+líneas 95,0 %.
 
 El procedimiento P1 bloquea la cuenta del actor y la del objetivo juntas, en orden de `id`, con
 `FOR NO KEY UPDATE` (ver `aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md`). La primera versión bloqueaba solo el objetivo con
