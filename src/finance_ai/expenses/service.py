@@ -112,6 +112,7 @@ class ExpenseService:
                 source_proposal_id=source_proposal_id,
             )
             uow.flush()
+            uow.evaluate_budget_alerts(owner_id=owner_id)
             uow.commit()
             return created, False
 
@@ -250,6 +251,7 @@ class ExpenseService:
             )
 
             uow.flush()
+            uow.evaluate_budget_alerts(owner_id=owner_id)
             uow.commit()
             return created, True
 
@@ -394,6 +396,7 @@ class ExpenseService:
             updated = uow.expenses.find_owned(owner_id=owner_id, expense_id=expense_id)
             if updated is None:
                 raise ExpenseNotFoundError
+            uow.evaluate_budget_alerts(owner_id=owner_id)
             uow.commit()
             return updated
 
