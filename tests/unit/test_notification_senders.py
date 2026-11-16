@@ -294,3 +294,98 @@ def test_production_requires_encrypted_smtp_and_an_https_base_url() -> None:
         Settings(**base, email_smtp_security="none")
     with pytest.raises(ValueError):
         Settings(**base, public_base_url="http://api.example.com")
+
+
+# --- a real SMTP conversation over a socket -----------------------------------------------
+
+
+class _SmtpSink:
+    """A minimal SMTP server that records the envelope and the DATA it receives."""
+
+    def __init__(self) -> None:
+        import socketserver
+
+        sink = self
+        self.messages: list[bytes] = []
+        self.envelopes: list[tuple[str, list[str]]] = []
+
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self) -> None:
+                self.wfile.write(b"220 sink ready\r\n")
+                sender, recipients = "", []
+                while True:
+                    line = self.rfile.readline()
+                    if not line:
+                        return
+                    command = line.decode(errors="replace").strip()
+                    upper = command.upper()
+                    if upper.startswith("EHLO") or upper.startswith("HELO"):
+                        self.wfile.write(b"250 sink\r\n")
+                    elif upper.startswith("MAIL FROM"):
+                        sender = command.split(":", 1)[1].strip().strip("<>")
+                        self.wfile.write(b"250 ok\r\n")
+                    elif upper.startswith("RCPT TO"):
+                        recipients.append(command.split(":", 1)[1].strip().strip("<>"))
+                        self.wfile.write(b"250 ok\r\n")
+                    elif upper == "DATA":
+                        self.wfile.write(b"354 go\r\n")
+                        data = b""
+                        while True:
+                            chunk = self.rfile.readline()
+                            if chunk == b".\r\n":
+                                break
+                            data += chunk
+                        sink.messages.append(data)
+                        sink.envelopes.append((sender, recipients))
+                        self.wfile.write(b"250 queued\r\n")
+                    elif upper == "QUIT":
+                        self.wfile.write(b"221 bye\r\n")
+                        return
+                    else:
+                        self.wfile.write(b"250 ok\r\n")
+
+        self.server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        self.port = self.server.server_address[1]
+        import threading
+
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def test_a_message_survives_a_real_smtp_conversation_intact() -> None:
+    sink = _SmtpSink()
+    try:
+        sender = SmtpEmailSender(
+            host="127.0.0.1",
+            port=sink.port,
+            username=None,
+            password=None,
+            security="none",
+            timeout_seconds=5,
+        )
+        result = sender.send(
+            message(
+                subject="Llevas el 80 % de tu presupuesto «Mercado»",
+                html_body="<p>Hola <b>mundo</b> <img src='cid:logo'></p>",
+                text_body="Hola mundo",
+                headers={"List-Unsubscribe": "<https://x.example/u?t=1>"},
+            )
+        )
+    finally:
+        sink.close()
+
+    assert sink.envelopes == [("avisos@finance.example.com", ["person@example.com"])]
+    received = message_from_bytes(sink.messages[0], policy=policy.default)
+    assert received["Subject"] == "Llevas el 80 % de tu presupuesto «Mercado»"
+    assert received["Message-ID"] == f"<{result.provider_message_id}>"
+    assert received["List-Unsubscribe"] == "<https://x.example/u?t=1>"
+    assert received.get_body(("plain",)).get_content().strip() == "Hola mundo"  # type: ignore[union-attr]
+    html_body = received.get_body(("html",))
+    assert "<b>mundo</b>" in html_body.get_content()  # type: ignore[union-attr]
+    images = [part for part in received.walk() if part.get_content_type() == "image/png"]
+    assert len(images) == 1 and images[0]["Content-ID"] == "<logo>"
+    assert images[0].get_content() == PNG

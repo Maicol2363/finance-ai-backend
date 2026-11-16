@@ -38,6 +38,8 @@ class AppUser(Base):
         ForeignKey("currency.id", ondelete="RESTRICT"), nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # EML-02: set when the person proved they can read mail sent to this address.
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

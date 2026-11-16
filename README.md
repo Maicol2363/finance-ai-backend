@@ -33,6 +33,16 @@ The schema mapping and limitations are recorded in `aidlc-docs/inception/require
 
 The locked TOTP, authenticated-encryption, QR-generation and PDF libraries prepare for later story implementations. No OTP, encryption, QR enrollment or PDF workflow is implemented in this foundation.
 
+## Email notifications (EML-01..EML-03)
+
+Branded HTML emails (with a plain-text alternative and an inline logo) are sent from a transactional outbox, so a notification is decided in the same database transaction as the event that causes it and delivered afterwards by a dispatcher.
+
+- Senders: `console` (development: writes `.eml` and a browsable `.html`, delivers nothing) and `smtp` (a sandbox inbox or any provider that offers SMTP). Configure them with the `FINANCE_AI_EMAIL_*` settings in `.env.example`. Without a real sender, production reports `notifications_unavailable` instead of pretending to deliver.
+- Preview every template with sample data: `uv run python scripts/preview_emails.py var/email-preview`, then open the `.html` files in a browser.
+- Send a real test email through the configured sender (evidence for the card): `uv run python scripts/send_test_email.py persona@example.com`.
+- Send what is waiting in the outbox: `uv run python scripts/dispatch_notifications.py`. The deployed service does the same through `POST /internal/notifications/dispatch` (header `X-Dispatch-Token`), which a scheduler calls every minute.
+- Addresses never reach logs or the outbox payload; the dispatcher reads the current address when it sends and re-checks verification and preferences at send time.
+
 ## Security Auditor (PB-016, AUD-01–AUD-04)
 
 The `security_auditor` role uses the staff browser session with password plus TOTP (the SEC-01 consumer for this role): the password step returns HTTP 202 and a short-lived challenge; `/api/v1/staff/auth/mfa/enrollment`, `/mfa/verify` and `/mfa/cancel` complete it. Migration `0019_staff_mfa_challenge` adds the challenge table; TOTP secrets are AES-256-GCM encrypted with `FINANCE_AI_STAFF_MFA_ENCRYPTION_KEY` (32 random bytes, base64url). Without that key, Auditor sign-in fails closed and other roles are unaffected.

@@ -174,6 +174,12 @@ class NotificationsUnavailableError(AppError):
         )
 
 
+def delivery_available(settings: Settings) -> bool:
+    """Whether ``create_email_sender`` would hand back a sender (it refuses the console sender in
+    production). Lets the app hide the feature instead of failing on use."""
+    return settings.email_provider == "smtp" or settings.environment != "production"
+
+
 def create_email_sender(settings: Settings) -> EmailSender:
     """The configured sender. In production the console sender is refused (fails closed), so a
     deployment without a real provider reports ``notifications_unavailable`` instead of
