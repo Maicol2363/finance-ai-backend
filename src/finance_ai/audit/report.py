@@ -48,9 +48,16 @@ _FILTER_LABELS: Final[dict[str, str]] = {
     "event_type": "Tipo de evento",
     "outcome": "Resultado",
     "actor_id": "Actor",
+    "actor_role": "Rol del actor",
     "target_type": "Tipo de objetivo",
     "target_id": "Objetivo",
     "correlation_id": "Correlación",
+}
+_ROLE_LABELS: Final[dict[str, str]] = {
+    "user": "Usuario (cliente)",
+    "support_agent": "Agente de soporte",
+    "admin": "Administrador",
+    "security_auditor": "Auditor de seguridad",
 }
 
 # Deterministic factual observation rules printed verbatim in every report.
@@ -75,6 +82,7 @@ class ReportEvent:
     target_id: str | None
     correlation_id: str | None
     context: dict[str, str]
+    actor_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -232,11 +240,17 @@ def _p(text: str, style: ParagraphStyle) -> Paragraph:
     return Paragraph(escape(text), style)
 
 
+def _filter_value(key: str, value: str) -> str:
+    return _ROLE_LABELS.get(value, value) if key == "actor_role" else value
+
+
 def _cover(snapshot: ReportSnapshot, styles: dict[str, ParagraphStyle]) -> list[Flowable]:
     period = snapshot.period
     filters = snapshot.filters.as_dict()
     filter_text = (
-        "; ".join(f"{_FILTER_LABELS[key]}: {value}" for key, value in filters.items())
+        "; ".join(
+            f"{_FILTER_LABELS[key]}: {_filter_value(key, value)}" for key, value in filters.items()
+        )
         if filters
         else "Sin filtros adicionales (todos los eventos del periodo)"
     )
@@ -461,13 +475,16 @@ def _event_table_section(
             else event.target_type or "No registrado"
         )
         context = ", ".join(f"{key}={value}" for key, value in sorted(event.context.items()))
+        actor = event.actor_id or "No registrado"
+        if event.actor_role:
+            actor = f"{actor} ({_ROLE_LABELS.get(event.actor_role, event.actor_role)})"
         rows.append(
             [
                 str(index),
                 _p(_format_local(event.occurred_at, snapshot.period), styles["small"]),
                 _p(event.event_type, styles["small"]),
                 _p(event.outcome, styles["small"]),
-                _p(event.actor_id or "No registrado", styles["small"]),
+                _p(actor, styles["small"]),
                 _p(target, styles["small"]),
                 _p(event.correlation_id or "No registrado", styles["small"]),
                 _p(context or "-", styles["small"]),
@@ -481,11 +498,11 @@ def _event_table_section(
             30 * mm,
             34 * mm,
             16 * mm,
-            16 * mm,
-            34 * mm,
-            34 * mm,
-            42 * mm,
-            52 * mm,
+            26 * mm,
+            32 * mm,
+            32 * mm,
+            40 * mm,
+            48 * mm,
         ],
         repeatRows=1,
     )

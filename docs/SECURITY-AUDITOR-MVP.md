@@ -30,7 +30,7 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
 - `security_auditor` no puede autenticarse en la API de clientes (login, refresh y resolución de
   sesión): no accede a funciones de usuario Free/Premium ni a datos financieros.
 - Una sesión emitida antes de asignar el rol de auditor nunca obtiene autoridad: no tiene marca de MFA.
-- En la web cada rol solo ve su espacio; la otra sección muestra “no corresponde a tu rol” sin pedir
+- En la web cada rol solo ve su espacio; la otra sección muestra “No tienes permisos para acceder a estas funciones” sin pedir
   datos. Es presentación: la autorización real ocurre en el backend.
 
 ## MFA (consumidor de SEC-01 para el Auditor)
@@ -61,6 +61,41 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
 - Proyección con lista blanca (`reason`, `resource`, metadatos del informe…); nunca contraseñas,
   tokens, secretos MFA, datos financieros ni cuerpos de solicitudes.
 - Un fallo de consulta es un error (`audit_query_unavailable`), nunca un resultado vacío.
+
+### Rol del actor (migración 0021)
+
+- Cada evento guarda `actor_role`: el rol que tenía el actor **en el momento del evento**. Lo calcula
+  PostgreSQL con un trigger `BEFORE INSERT` a partir de la cuenta del actor; cualquier valor enviado
+  por la aplicación se reemplaza, así que no se puede falsear, y un cambio de rol posterior no
+  reescribe la historia. Sin actor, con un actor no numérico o sin cuenta, queda nulo.
+- Los eventos anteriores a la migración quedan con rol nulo («No registrado»): la tabla es
+  *append-only* y no se rellena hacia atrás.
+- Filtro `actor_role` (`user`, `support_agent`, `admin`, `security_auditor`) en lista, resumen e
+  informe; el catálogo publica `actor_roles`. Los eventos sin rol registrado no coinciden con ningún
+  rol. El PDF muestra el rol junto al actor y el filtro aplicado (`filter_actor_role`).
+
+### Inicios de sesión de la app de clientes
+
+La API de clientes (app Flutter en Android y Windows) registra los eventos aprobados de SEC-02:
+
+| Evento | Cuándo | Actor | Contexto |
+|---|---|---|---|
+| `auth.login_success` (success) | Sesión emitida; en la misma transacción | Cuenta | `channel=customer_app`, `platform` |
+| `auth.login_failed` (failure) | Cuenta desconocida o contraseña incorrecta (`reason=invalid_credentials`) | Cuenta si existe; si no, nulo | `reason`, `channel`, `platform` |
+| `auth.login_failed` (denied) | Cuenta inactiva (`account_inactive`) o rol sin acceso a la API de clientes (`role_not_permitted`) | Cuenta | `reason`, `channel`, `platform` |
+| `auth.logout` (success) | Cierre de sesión que revoca una sesión activa | Cuenta | `channel`, `platform` |
+
+Nunca se registran el correo ni la contraseña. El cliente sigue recibiendo el mismo error genérico; si
+el registro de un intento fallido no se puede guardar, se anota en el log y la respuesta no cambia.
+Estos eventos entran en las métricas «Inicios de sesión exitosos/fallidos».
+
+### Convenciones de la página (staff web)
+
+Nombres de evento legibles junto a su código exacto; origen («App de clientes · Android») y rol bajo el
+actor; enlaces en actor y correlación para filtrar sin perder el periodo; periodos rápidos (Hoy, 7, 30
+y 90 días); ayuda bajo cada campo mientras tiene el foco; botón «Actualizar» y aviso de eventos nuevos
+cada 30 s cuando el periodo incluye hoy (la lista visible no cambia sola); estado vacío que sugiere
+ampliar el periodo o quitar filtros. Otro rol ve «No tienes permisos para acceder a estas funciones».
 
 ### Mapeo de métricas (AUD-03 y PDF)
 

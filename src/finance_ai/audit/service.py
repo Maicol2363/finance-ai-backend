@@ -28,11 +28,17 @@ REPORT_EXPORT_CONTEXT_KEYS: Final[frozenset[str]] = frozenset(
         "filter_target_type",
         "filter_target_id",
         "filter_correlation_id",
+        "filter_actor_role",
     }
 )
+# Customer-app sign-in evidence: where it came from, never the email address or credentials.
+CUSTOMER_LOGIN_CONTEXT_KEYS: Final[frozenset[str]] = frozenset({"reason", "channel", "platform"})
 _DEFAULT_CONTEXT_KEYS: Final[frozenset[str]] = frozenset({"reason"})
 _CONTEXT_KEYS_BY_EVENT: Final[dict[str, frozenset[str]]] = {
     "access.denied": frozenset({"reason", "resource"}),
+    "auth.login_success": CUSTOMER_LOGIN_CONTEXT_KEYS,
+    "auth.login_failed": CUSTOMER_LOGIN_CONTEXT_KEYS,
+    "auth.logout": CUSTOMER_LOGIN_CONTEXT_KEYS,
     # ADM-04: the role.changed event carries previous and new role only.
     "role.changed": frozenset({"previous_role", "new_role"}),
     # ADM-03: the staff role being granted; never the invitation token or the email address.
@@ -55,6 +61,8 @@ _ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         "support.ticket_returned",
         "support.customer_lookup",
         "auth.login_success",
+        "auth.login_failed",
+        "auth.logout",
         "auth.mfa_success",
         "auth.mfa_failed",
         "auth.mfa_enrolled",

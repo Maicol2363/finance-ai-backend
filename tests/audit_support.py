@@ -26,6 +26,7 @@ def add_event(
     event_type: str = "staff.login",
     result: str = "success",
     actor_id: str | None = "7",
+    actor_role: str | None = None,
     target_type: str | None = None,
     target_id: str | None = None,
     correlation_id: str | None = "corr-1",
@@ -39,6 +40,8 @@ def add_event(
                 event_id=identifier,
                 event_type=event_type,
                 actor_id=actor_id,
+                # Explicit only for SQLite unit tests; PostgreSQL derives it with a trigger.
+                actor_role=actor_role,
                 target_resource_type=target_type,
                 target_resource_id=target_id,
                 occurred_at=occurred_at.astimezone(UTC),

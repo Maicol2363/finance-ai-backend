@@ -415,6 +415,13 @@
       "AuditCatalogView": {
         "additionalProperties": false,
         "properties": {
+          "actor_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Actor Roles",
+            "type": "array"
+          },
           "default_time_zone": {
             "title": "Default Time Zone",
             "type": "string"
@@ -471,6 +478,7 @@
           "event_types",
           "outcomes",
           "target_types",
+          "actor_roles",
           "time_zones",
           "default_time_zone",
           "max_query_days",
@@ -560,6 +568,18 @@
             "description": "Historical actor identifier; null when unknown.",
             "title": "Actor Id"
           },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Role the actor held when the event was recorded; null when not recorded.",
+            "title": "Actor Role"
+          },
           "context": {
             "additionalProperties": {
               "type": "string"
@@ -627,6 +647,7 @@
           "event_type",
           "outcome",
           "actor_id",
+          "actor_role",
           "target_type",
           "target_id",
           "correlation_id",
@@ -648,6 +669,17 @@
               }
             ],
             "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
           },
           "correlation_id": {
             "anyOf": [
@@ -722,6 +754,18 @@
             ],
             "description": "Historical actor identifier; null when unknown.",
             "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Role the actor held when the event was recorded; null when not recorded.",
+            "title": "Actor Role"
           },
           "context": {
             "additionalProperties": {
@@ -799,6 +843,7 @@
           "event_type",
           "outcome",
           "actor_id",
+          "actor_role",
           "target_type",
           "target_id",
           "correlation_id",
@@ -1010,6 +1055,23 @@
               }
             ],
             "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "support_agent",
+                  "admin",
+                  "security_auditor"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
           },
           "correlation_id": {
             "anyOf": [
@@ -13064,6 +13126,30 @@
               ],
               "title": "Correlation Id"
             }
+          },
+          {
+            "description": "Role the actor held when the event was recorded.",
+            "in": "query",
+            "name": "actor_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "user",
+                    "support_agent",
+                    "admin",
+                    "security_auditor"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Role the actor held when the event was recorded.",
+              "title": "Actor Role"
+            }
           }
         ],
         "responses": {
@@ -13621,6 +13707,30 @@
                 }
               ],
               "title": "Correlation Id"
+            }
+          },
+          {
+            "description": "Role the actor held when the event was recorded.",
+            "in": "query",
+            "name": "actor_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "user",
+                    "support_agent",
+                    "admin",
+                    "security_auditor"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Role the actor held when the event was recorded.",
+              "title": "Actor Role"
             }
           }
         ],

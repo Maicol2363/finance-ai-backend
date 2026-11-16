@@ -172,6 +172,7 @@ def generate_security_report(
         event_type=payload.event_type,
         outcome=payload.outcome,
         actor_id=payload.actor_id,
+        actor_role=payload.actor_role,
         target_type=payload.target_type,
         target_id=payload.target_id,
         correlation_id=payload.correlation_id,

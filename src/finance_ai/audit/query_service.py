@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from finance_ai.audit import repository
 from finance_ai.audit.policy import (
     ACCOUNT_TARGET_TYPE,
+    AUDIT_ACTOR_ROLES,
     AUDIT_OUTCOMES,
     AUDIT_TARGET_TYPES,
     DEFAULT_TIME_ZONE,
@@ -74,6 +75,7 @@ class AuditQueryService:
             event_types=list(KNOWN_EVENT_TYPES),
             outcomes=list(AUDIT_OUTCOMES),
             target_types=list(AUDIT_TARGET_TYPES),
+            actor_roles=list(AUDIT_ACTOR_ROLES),
             time_zones=[
                 AuditTimeZoneView(name=name, label=TIME_ZONE_LABELS[name])
                 for name in REPORTING_TIME_ZONES
@@ -229,6 +231,7 @@ def event_view(row: SecurityAuditEvent) -> AuditEventView:
         event_type=row.event_type,
         outcome=row.result,
         actor_id=row.actor_id,
+        actor_role=row.actor_role,
         target_type=row.target_resource_type,
         target_id=row.target_resource_id,
         correlation_id=row.correlation_id,
