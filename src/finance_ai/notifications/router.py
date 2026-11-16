@@ -20,9 +20,8 @@ from pydantic import BaseModel
 
 from finance_ai.core.config import Settings, get_settings
 from finance_ai.core.errors import AppError
-from finance_ai.db.session import get_session_factory
+from finance_ai.notifications.dependencies import build_dispatcher
 from finance_ai.notifications.dispatcher import NotificationDispatcher
-from finance_ai.notifications.senders import create_email_sender
 
 router = APIRouter(prefix="/internal/notifications", include_in_schema=False)
 
@@ -40,12 +39,7 @@ def _limiter() -> FixedWindowRateLimiter:
 
 
 def get_dispatcher() -> NotificationDispatcher:
-    settings = get_settings()
-    return NotificationDispatcher(
-        session_factory=get_session_factory(),
-        sender=create_email_sender(settings),
-        settings=settings,
-    )
+    return build_dispatcher(get_settings())
 
 
 def _authorize(settings: Settings, presented: str | None, request: Request) -> None:

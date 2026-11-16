@@ -78,6 +78,7 @@ Index(
     EmailVerification.user_id,
     unique=True,
     postgresql_where=text("consumed_at IS NULL"),
+    sqlite_where=text("consumed_at IS NULL"),
 )
 
 
