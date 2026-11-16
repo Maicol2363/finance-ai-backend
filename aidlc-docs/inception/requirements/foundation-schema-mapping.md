@@ -31,7 +31,7 @@ The audit event actor and target are historical identifiers rather than cascadin
 | MFA recovery | `staff_mfa_recovery_code` (hashes only) | Shown once at issue time |
 | Escalated-ticket ownership and return | `support_ticket.admin_owner_user_id` + CHECK, procedure `sp_admin_return_escalated_ticket` | Status, assignment, ownership and activity change together |
 
-Executable definitions and rationale: the migration file and `NullCorvus/finance-ai/docs/DB-ROUTINES-ADMIN.md`.
+Executable definitions and rationale: the migration file and `NullCorvus/finance-ai/aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md`.
 
 ## Unresolved decisions kept for later
 

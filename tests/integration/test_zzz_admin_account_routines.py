@@ -1024,6 +1024,66 @@ def test_adm05_full_lifecycle_return_to_the_active_originating_agent() -> None:
     assert ("ticket.escalated", "success") in events
 
 
+def test_adm05_suspending_the_owning_administrator_releases_the_case_to_the_queue() -> None:
+    admin, agent, customer, other_admin = support_world()
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c-claim")
+    unrelated = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=other_admin, ticket_id=unrelated, correlation_id="c-claim-2")
+
+    assert call_suspension(other_admin, admin, True, "rotation") == "ok"
+
+    # Nobody could take the case over before; now it is back in the unclaimed queue.
+    assert ticket_row(ticket_id)["admin_owner_user_id"] is None
+    assert ticket_row(ticket_id)["status"] == "escalated"
+    assert activity_types(ticket_id)[-1] == "ticket_admin_released"
+    assert activity_types(unrelated)[-1] == "ticket_admin_claimed"
+    assert ticket_row(unrelated)["admin_owner_user_id"] == other_admin
+    queue = tickets.list_escalated(admin_id=other_admin, scope="unclaimed", limit=50)
+    assert [item.id for item in queue] == [ticket_id]
+    taken = tickets.claim(admin_id=other_admin, ticket_id=ticket_id, correlation_id="c-take")
+    assert taken.owned_by_me
+    # The suspended administrator cannot act on it any more.
+    with pytest.raises(Exception):  # noqa: B017 - any refusal is correct here
+        tickets.reply(admin_id=admin, ticket_id=ticket_id, body="late", correlation_id="c-late")
+
+
+def test_adm05_suspending_a_customer_or_an_administrator_without_cases_leaves_tickets_alone() -> (
+    None
+):
+    admin, agent, customer, other_admin = support_world()
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    tickets.claim(admin_id=other_admin, ticket_id=ticket_id, correlation_id="c-claim")
+
+    assert call_suspension(other_admin, admin, True, "no cases owned") == "ok"
+    assert call_suspension(other_admin, agent, True, "agent rotation") == "ok"
+
+    assert ticket_row(ticket_id)["admin_owner_user_id"] == other_admin
+    assert activity_types(ticket_id)[-1] == "ticket_admin_claimed"
+
+
+def test_adm05_a_customer_promoted_to_administrator_keeps_a_readable_escalated_case() -> None:
+    admin, agent, customer, _other = support_world()
+    tickets, _workflow, _support = ticket_services()
+    ticket_id = make_escalated_ticket(agent, customer)
+    with get_session_factory()() as session:
+        session.execute(
+            text(
+                "UPDATE app_user SET role_id = (SELECT id FROM role WHERE name = 'admin') "
+                "WHERE id = :id"
+            ),
+            {"id": customer},
+        )
+        session.commit()
+
+    case = tickets.get_case(admin_id=admin, ticket_id=ticket_id)
+    assert case.customer.email == "customer@example.test"
+    claimed = tickets.claim(admin_id=admin, ticket_id=ticket_id, correlation_id="c-claim")
+    assert claimed.owned_by_me and claimed.customer.id == customer
+
+
 @pytest.mark.parametrize("ineligible", ["suspended", "role_changed", "no_origin"])
 def test_adm05_return_goes_to_the_open_queue_when_the_origin_is_not_eligible(
     ineligible: str,

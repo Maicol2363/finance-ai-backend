@@ -283,7 +283,7 @@ class AdminTicketService:
         return AdminCase.model_validate(
             {
                 "ticket": dict(row),
-                "customer": repository.customer(str(links.customer_user_id)),
+                "customer": repository.ticket_customer(links.customer_user_id),
                 "messages": repository.messages(ticket_id),
                 "history": history,
                 "escalation_reason": escalation_reason,

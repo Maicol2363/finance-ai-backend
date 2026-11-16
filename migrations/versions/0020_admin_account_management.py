@@ -16,7 +16,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-# --- Database routines (documented in docs/DB-ROUTINES-ADMIN.md) -----------------------------
+# --- Database routines (documented in aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md) -----------------------------
 
 # T1: no change may leave the system without an active administrator (ADM-02 #8-10). The
 # advisory lock serializes competing changes; the count then runs on a fresh READ COMMITTED
@@ -151,6 +151,21 @@ BEGIN
             END IF;
             RAISE;
         END;
+        -- A suspended administrator can no longer reply, resolve or return the escalated cases
+        -- they own, and no other administrator could take them over. Release them to the queue
+        -- in this transaction and leave one activity row per case.
+        WITH released AS (
+            UPDATE support_ticket
+            SET admin_owner_user_id = NULL
+            WHERE admin_owner_user_id = p_target_id AND status = 'escalated'
+            RETURNING id
+        )
+        INSERT INTO support_ticket_activity (
+            ticket_id, actor_user_id, event_type, previous_status, new_status,
+            previous_assignee_user_id, new_assignee_user_id
+        )
+        SELECT id, p_actor_id, 'ticket_admin_released', 'escalated', 'escalated', p_target_id, NULL
+        FROM released;
         INSERT INTO account_suspension (user_id, suspended_by_user_id, reason)
         VALUES (p_target_id, p_actor_id, v_reason);
     ELSE

@@ -292,6 +292,27 @@ def test_expired_unknown_and_malformed_tokens_all_fail_the_same_way(env: Env) ->
         )
 
 
+@pytest.mark.parametrize("presented", ["valid", "unknown", "malformed", "expired"])
+def test_a_rejected_password_is_reported_the_same_whatever_the_token(
+    env: Env, presented: str
+) -> None:
+    """The password policy is checked before the token, so it cannot be used as a token oracle."""
+    token = invite(env).activation_token
+    if presented == "expired":
+        env.clock.value = NOW + timedelta(hours=48, seconds=1)
+    candidate = {
+        "valid": token,
+        "unknown": CredentialCodec().issue().raw,
+        "malformed": "not-a-token",
+        "expired": token,
+    }[presented]
+
+    with pytest.raises(ActivationPasswordInvalidError) as failure:
+        activate(env, candidate, password="short")
+
+    assert "password" in (failure.value.field_errors or {})
+
+
 @pytest.mark.parametrize(
     ("password", "confirmation", "field"),
     [

@@ -4,7 +4,7 @@ Ramas de trabajo (sin fusionar): `feat/admin-adm-sec-backend` y `feat/admin-adm-
 desde `feat/security-auditor-aud` porque el TOTP de SEC-01 ya existía allí. Requisitos fuente:
 `NullCorvus/finance-ai` (`docs/BACKLOG-AND-STORIES.md`, `administrator-role.md`,
 `shared-security-requirements.md`). Documento de rutinas de base de datos:
-`NullCorvus/finance-ai/docs/DB-ROUTINES-ADMIN.md`.
+`NullCorvus/finance-ai/aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md`.
 
 ## Qué incluye
 
@@ -34,6 +34,10 @@ concede ni quita autoridad.
 
 El correo de búsqueda viaja en el **cuerpo** (POST), nunca en la URL, para que no quede en los registros
 de acceso de nginx ni en el historial del navegador.
+
+La activación de una invitación comprueba primero la política de contraseña (que no depende del token) y solo
+después el token: cualquier fallo que dependa del token (desconocido, mal formado, vencido, ya usado) es un
+único mensaje genérico y una contraseña rechazada nunca revela si el token es válido.
 
 Un rol no permitido recibe 403 `staff_access_denied` y se registra `access.denied`. Un campo `role`
 forzado (por ejemplo `admin`) falla en validación: los modelos usan `extra="forbid"` y el rol es un
@@ -71,10 +75,10 @@ sesiones y autenticadores previos.
 |---|---|---|
 | `app_user_last_admin_guard` | Trigger T1 | Nunca deja el sistema sin administrador activo, ni con operaciones concurrentes |
 | `app_user_revoke_sessions_on_authority_change` | Trigger T2 | Revoca las sesiones vivas al suspender o cambiar el rol |
-| `sp_admin_set_account_suspension` | Procedimiento P1 | Suspender/reactivar de forma atómica con historial |
+| `sp_admin_set_account_suspension` | Procedimiento P1 | Suspender/reactivar de forma atómica con historial; al suspender a un administrador libera a la cola los casos escalados que tenía reclamados (una fila `ticket_admin_released` por caso) |
 | `sp_admin_return_escalated_ticket` | Procedimiento P2 | Devolver un caso escalado a soporte de forma atómica |
 
-Definiciones completas, análisis de concurrencia y pruebas: `docs/DB-ROUTINES-ADMIN.md` en
+Definiciones completas, análisis de concurrencia y pruebas: `aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md` en
 `NullCorvus/finance-ai`.
 
 ## Eventos SEC-02 añadidos
@@ -197,7 +201,7 @@ Resultado de la entrega: 924 pruebas pasan, 2 fallan por una causa previa e inde
 líneas 94,9 %.
 
 El procedimiento P1 bloquea la cuenta del actor y la del objetivo juntas, en orden de `id`, con
-`FOR NO KEY UPDATE` (ver `docs/DB-ROUTINES-ADMIN.md`). La primera versión bloqueaba solo el objetivo con
+`FOR NO KEY UPDATE` (ver `aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md`). La primera versión bloqueaba solo el objetivo con
 `FOR UPDATE` y dos administradores que se suspendían entre sí a la vez provocaban un *deadlock* de
 PostgreSQL (503). Lo encontró la ejecución con dos administradores reales; ahora lo cubren pruebas
 simultáneas (30 rondas) que fallan con `DeadlockDetected` contra la versión anterior.

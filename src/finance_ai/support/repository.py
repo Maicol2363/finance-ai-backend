@@ -50,6 +50,24 @@ class SupportRepository:
             raise SupportTicketNotFoundError()
         return CustomerMetadata.model_validate(row)
 
+    def ticket_customer(self, user_id: int) -> CustomerMetadata:
+        """Allowlisted metadata of a ticket's customer, found by id and independent of role.
+
+        Staff lookups by email or id (``customer``) are limited to accounts that are customers
+        today. A ticket keeps its customer for life: if the operator later promotes that
+        customer to administrator, the escalated case must stay readable and claimable.
+        """
+        row = (
+            self.session.execute(
+                select(AppUser.id, AppUser.email, AppUser.is_active).where(AppUser.id == user_id)
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise SupportTicketNotFoundError()
+        return CustomerMetadata.model_validate(row)
+
     def ticket(
         self, ticket_id: int, user_id: int, *, staff: bool, lock: bool = False
     ) -> CustomerTicket:

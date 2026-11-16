@@ -54,6 +54,10 @@ class StaffActivationService:
     def activate(
         self, *, token: str, password: str, password_confirmation: str, correlation_id: str
     ) -> None:
+        # The password policy is checked first and never depends on the token, so a rejected
+        # password cannot be used to learn whether a token is valid. Everything that does depend
+        # on the token (unknown, malformed, expired, replayed) is one generic failure.
+        self._validate_password(password, password_confirmation)
         token_hash = self._codec.try_hash_presented(token)
         if token_hash is None:
             raise StaffActivationInvalidError()
@@ -61,7 +65,6 @@ class StaffActivationService:
         with self._factory() as session:
             if self._usable(session, token_hash) is None:
                 raise StaffActivationInvalidError()
-        self._validate_password(password, password_confirmation)
         password_hash = self._hasher.hash(password)
 
         now = self._clock.now()
