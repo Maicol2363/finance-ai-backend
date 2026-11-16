@@ -37,6 +37,8 @@ PERIOD = {"start_date": "2026-10-01", "end_date": "2026-10-14"}
 ROLES = {
     "auditor-access": StaffSessionUser(id=5, email="auditor@example.test", role="security_auditor"),
     "agent-access": StaffSessionUser(id=6, email="agent@example.test", role="support_agent"),
+    # Resolved as a fully authorized administrator (active, MFA-verified): the role alone denies.
+    "admin-access": StaffSessionUser(id=7, email="admin@example.test", role="admin"),
 }
 
 
@@ -128,6 +130,11 @@ def test_active_auditor_reads_sanitized_events_and_details(harness: Harness) -> 
 
 
 @pytest.mark.parametrize(
+    ("access", "actor_id"),
+    [("agent-access", 6), ("admin-access", 7)],
+    ids=["support_agent", "admin"],
+)
+@pytest.mark.parametrize(
     ("method", "path"),
     [
         ("get", "/api/v1/staff/audit/catalog"),
@@ -138,19 +145,22 @@ def test_active_auditor_reads_sanitized_events_and_details(harness: Harness) -> 
         ("post", "/api/v1/staff/audit/reports"),
     ],
 )
-def test_support_agent_cannot_use_any_auditor_function(
-    harness: Harness, method: str, path: str
+def test_other_staff_roles_cannot_use_any_auditor_function(
+    harness: Harness, access: str, actor_id: int, method: str, path: str
 ) -> None:
-    as_role(harness, "agent-access")
+    as_role(harness, access)
     if method == "get":
         response = harness.client.get(path, params=PERIOD, headers=GET_HEADERS)
     else:
         response = harness.client.post(path, json=PERIOD, headers=POST_HEADERS)
     assert response.status_code == 403
     assert response.json()["code"] == "staff_access_denied"
+    assert len(harness.denials.calls) == 1
     assert harness.denials.calls[-1]["resource"] == "security_audit"
     assert harness.denials.calls[-1]["reason"] == "role_not_permitted"
-    assert harness.denials.calls[-1]["actor_id"] == 6
+    assert harness.denials.calls[-1]["actor_id"] == actor_id
+    with harness.factory() as session:
+        assert session.scalar(select(SecurityAuditEvent.event_id)) is None
 
 
 def test_anonymous_revoked_and_cross_site_requests_are_rejected(harness: Harness) -> None:

@@ -22,9 +22,11 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
 - Solo `security_auditor` activo, con activación autorizada y sesión **verificada con MFA** usa
   `/staff/audit/*`. Cada solicitud vuelve a comprobar cuenta activa, rol actual, activación y MFA;
   la suspensión o la pérdida del rol revocan la sesión existente de inmediato.
-- `support_agent` recibe 403 en Auditoría y se registra `access.denied` (sin contenido de la
-  solicitud). `security_auditor` recibe 403 en Soporte con el mismo registro.
-- `admin` sigue sin acceso al portal del personal (sus historias ADM no están implementadas).
+- `support_agent` y `admin` reciben 403 en Auditoría y se registra `access.denied` (sin contenido de
+  la solicitud), aunque el administrador tenga su sesión verificada con MFA: el rol por sí solo niega.
+  `security_auditor` recibe 403 en Soporte y en Administración con el mismo registro.
+- Fuera de la demo, el auditor se crea con una invitación del Administrador (ADM-03, página
+  `/activate`); ver `docs/ADMINISTRATOR-MVP.md`.
 - `security_auditor` no puede autenticarse en la API de clientes (login, refresh y resolución de
   sesión): no accede a funciones de usuario Free/Premium ni a datos financieros.
 - Una sesión emitida antes de asignar el rol de auditor nunca obtiene autoridad: no tiene marca de MFA.
@@ -44,8 +46,9 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
 - Límites: 5 intentos fallidos por reto (configurable) y 10 intentos/minuto por cliente.
 - Eventos SEC-02: `auth.mfa_enrolled`, `auth.mfa_success`, `auth.mfa_failed` y `auth.login_success`
   (solo tras contraseña + MFA). `auth.mfa_success` no se cuenta como inicio de sesión.
-- Fuera de este alcance (SEC-01 compartido): recuperación/reemplazo del autenticador y MFA del
-  administrador. Un autenticador perdido requiere hoy intervención controlada en el backend.
+- La recuperación y el reemplazo del autenticador (SEC-01 compartido con el administrador) están en
+  `staff_auth/recovery.py` y la página `/recover`; sin ninguna prueba de identidad, un operador usa
+  `scripts/admin_ops.py reset-mfa`. Ver `docs/ADMINISTRATOR-MVP.md`.
 
 ## Reglas de consulta
 
