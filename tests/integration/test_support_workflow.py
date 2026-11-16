@@ -13,6 +13,7 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text, update
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 
 from finance_ai.audit.service import SecurityAuditWriter
 from finance_ai.auth.dependencies import get_password_hasher
@@ -167,6 +168,34 @@ def test_customer_agent_exchange_and_customer_visible_resolution(people):
         assert len(events) == 5
         assert all(e.context == {} for e in events)
         assert "Respuesta" not in str([e.context for e in events])
+
+
+def test_new_message_moves_the_ticket_to_the_front_of_the_queue(people):
+    customer, _, agent, _, _ = people
+    workflow, older = make_ticket(people)
+    _, newer = make_ticket(people)
+    service = SupportTicketService(get_session_factory(), SecurityAuditWriter())
+    user = StaffSessionUser(id=agent[0], email=agent[1], role="support_agent")
+
+    def relative_order():
+        return [item.id for item in service.list_queue(user, None) if item.id in {older, newer}]
+
+    assert relative_order() == [newer, older]
+    workflow.message(customer[0], older, "Información adicional", "bump-ticket", staff=False)
+    assert relative_order() == [older, newer]
+
+
+def test_database_rejects_resolving_a_ticket_without_a_summary(people):
+    _, ticket_id = make_ticket(people)
+
+    for summary in (None, " \t\n"):
+        with pytest.raises(IntegrityError) as error, get_session_factory().begin() as session:
+            session.execute(
+                update(SupportTicket)
+                .where(SupportTicket.id == ticket_id)
+                .values(status="resolved", resolution_summary=summary)
+            )
+        assert error.value.orig.diag.constraint_name == "support_ticket_resolution_required"
 
 
 def test_escalation_read_only_internal_reason_and_origin_preserved(people):
