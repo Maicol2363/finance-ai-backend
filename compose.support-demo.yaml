@@ -1,11 +1,12 @@
 # Isolated fictional data. Always use the project name finance-support-demo.
+# Set SUPPORT_DEMO_DB_PASSWORD to a random local value first; no password is stored here.
 services:
   database:
     image: postgres:18.6-bookworm
     environment:
       POSTGRES_DB: support_demo_test
       POSTGRES_USER: support_demo
-      POSTGRES_PASSWORD: local-demo-only
+      POSTGRES_PASSWORD: ${SUPPORT_DEMO_DB_PASSWORD:?Set SUPPORT_DEMO_DB_PASSWORD to a random local value}
     volumes:
       - support-demo-data:/var/lib/postgresql
     healthcheck:
@@ -20,7 +21,7 @@ services:
       target: runtime
     environment:
       FINANCE_AI_ENVIRONMENT: local
-      FINANCE_AI_DATABASE_URL: postgresql+psycopg://support_demo:local-demo-only@database:5432/support_demo_test
+      FINANCE_AI_DATABASE_URL: postgresql+psycopg://support_demo:${SUPPORT_DEMO_DB_PASSWORD:?Set SUPPORT_DEMO_DB_PASSWORD to a random local value}@database:5432/support_demo_test
       FINANCE_AI_CORS_ALLOWED_ORIGINS: '["http://127.0.0.1:5173","http://localhost:5173","http://127.0.0.1:4173"]'
       FINANCE_AI_STAFF_LOCAL_COOKIE_EXCEPTION_ENABLED: 'true'
     volumes:

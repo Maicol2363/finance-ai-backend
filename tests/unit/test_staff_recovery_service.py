@@ -25,6 +25,7 @@ from finance_ai.staff_auth.recovery import (
     RECOVERY_CODE_COUNT,
     StaffRecoveryService,
     hash_recovery_code,
+    issued_code_hashes,
     new_recovery_codes,
 )
 from finance_ai.staff_auth.schemas import StaffLoginCommand
@@ -90,6 +91,14 @@ def test_recovery_codes_have_the_documented_shape_and_hash_normalization() -> No
     assert hash_recovery_code(first) == hash_recovery_code(first.lower().replace("-", " "))
     assert hash_recovery_code("too-short") is None
     assert hash_recovery_code("1111-1111-1111-1111") is None
+
+
+def test_issued_codes_always_hash_and_a_malformed_one_is_a_generator_defect() -> None:
+    codes = new_recovery_codes()
+    assert issued_code_hashes(codes) == [hash_recovery_code(code) for code in codes]
+    # Explicit validation, not an assert: it holds with -O and is not swallowed by callers.
+    with pytest.raises(RuntimeError):
+        issued_code_hashes([*codes[:-1], "too-short"])
 
 
 def test_issue_codes_stores_only_hashes_and_replaces_previous_set(
