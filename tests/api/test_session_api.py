@@ -37,6 +37,7 @@ class StubSessionService:
         self.refresh_values: list[str] = []
         self.access_values: list[str] = []
         self.logout_values: list[str] = []
+        self.correlation_ids: list[str] = []
 
     @staticmethod
     def user() -> PublicAuthenticatedUser:
@@ -62,8 +63,9 @@ class StubSessionService:
         if self.failure is not None:
             raise self.failure
 
-    def login(self, command: LoginCommand) -> IssuedSession:
+    def login(self, command: LoginCommand, *, correlation_id: str) -> IssuedSession:
         self.login_commands.append(command)
+        self.correlation_ids.append(correlation_id)
         self._raise_if_needed()
         return self.issued()
 
@@ -77,8 +79,9 @@ class StubSessionService:
         self._raise_if_needed()
         return self.user()
 
-    def logout(self, raw_renewable: str) -> None:
+    def logout(self, raw_renewable: str, *, correlation_id: str) -> None:
         self.logout_values.append(raw_renewable)
+        self.correlation_ids.append(correlation_id)
         self._raise_if_needed()
 
 
@@ -115,6 +118,8 @@ def test_login_returns_non_cacheable_opaque_session_without_password(
     assert response.json()["renewable_credential"] == "b" * 43
     assert "password" not in response.text.casefold()
     assert service.login_commands[0].platform == "windows"
+    # The request correlation ID reaches the service so SEC-02 sign-in evidence can be matched.
+    assert service.correlation_ids == ["login-contract-1"]
     assert limiter.login_calls[0][1] == "person@example.com"
 
 

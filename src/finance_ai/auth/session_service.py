@@ -1,8 +1,10 @@
 from collections.abc import Callable
+from typing import Final
 
 from finance_ai.auth.credentials import CredentialCodec, IssuedCredential
 from finance_ai.auth.passwords import PasswordHasher
 from finance_ai.auth.session_policy import Clock, SessionPolicy
+from finance_ai.auth.session_repositories import AuthUserRecord
 from finance_ai.auth.session_schemas import IssuedSession, LoginCommand, PublicAuthenticatedUser
 from finance_ai.auth.session_uow import SessionUnitOfWork
 from finance_ai.core.errors import (
@@ -11,9 +13,32 @@ from finance_ai.core.errors import (
     ServiceUnavailableError,
     SessionInvalidError,
 )
+from finance_ai.core.logging import get_logger
 from finance_ai.core.roles import CUSTOMER_API_DENIED_ROLES
 
 SessionUnitOfWorkFactory = Callable[[], SessionUnitOfWork]
+
+logger = get_logger(__name__)
+
+# SEC-02 origin of customer-API sign-in evidence (the Flutter app on Android or Windows).
+CUSTOMER_APP_CHANNEL: Final = "customer_app"
+# Failure reasons recorded for the Auditor; the client always receives the same generic error.
+_DENIED_REASONS: Final[frozenset[str]] = frozenset({"account_inactive", "role_not_permitted"})
+
+
+def _login_denial(
+    user: AuthUserRecord | None, *, password_matches: bool, expected_hash: str | None = None
+) -> str | None:
+    """Why a sign-in is refused, or None. Unknown account and wrong password look the same."""
+    if user is None or not password_matches:
+        return "invalid_credentials"
+    if expected_hash is not None and user.password_hash != expected_hash:
+        return "invalid_credentials"
+    if not user.is_active:
+        return "account_inactive"
+    if user.role_name in CUSTOMER_API_DENIED_ROLES:
+        return "role_not_permitted"
+    return None
 
 
 class SessionService:
@@ -32,7 +57,7 @@ class SessionService:
         self.clock = clock
         self.uow_factory = uow_factory
 
-    def login(self, command: LoginCommand) -> IssuedSession:
+    def login(self, command: LoginCommand, *, correlation_id: str = "unavailable") -> IssuedSession:
         normalized_email = command.email.strip().lower()
         with self.uow_factory() as lookup_uow:
             snapshot = lookup_uow.users.find_auth_by_email(normalized_email)
@@ -42,12 +67,14 @@ class SessionService:
             password_hash,
             command.password,
         )
-        if (
-            snapshot is None
-            or not snapshot.is_active
-            or not password_matches
-            or snapshot.role_name in CUSTOMER_API_DENIED_ROLES
-        ):
+        denial = _login_denial(snapshot, password_matches=password_matches)
+        if denial is not None or snapshot is None:
+            self._record_login_failure(
+                actor_id=None if snapshot is None else snapshot.id,
+                reason=denial or "invalid_credentials",
+                platform=command.platform,
+                correlation_id=correlation_id,
+            )
             raise InvalidCredentialsError
 
         now = self.clock.now()
@@ -56,56 +83,97 @@ class SessionService:
 
         with self.uow_factory() as uow:
             locked_user = uow.users.lock_by_id(snapshot.id)
-            if (
-                locked_user is None
-                or not locked_user.is_active
-                or locked_user.password_hash != snapshot.password_hash
-                or locked_user.role_name in CUSTOMER_API_DENIED_ROLES
-            ):
-                raise InvalidCredentialsError
+            denial = _login_denial(
+                locked_user, password_matches=True, expected_hash=snapshot.password_hash
+            )
+            if denial is None and locked_user is not None:
+                if self.password_hasher.needs_rehash(locked_user.password_hash):
+                    uow.users.update_password_hash(
+                        user_id=locked_user.id,
+                        password_hash=self.password_hasher.hash(command.password),
+                    )
 
-            if self.password_hasher.needs_rehash(locked_user.password_hash):
-                uow.users.update_password_hash(
+                active_session_ids = uow.sessions.active_session_ids_for_user(
                     user_id=locked_user.id,
-                    password_hash=self.password_hasher.hash(command.password),
+                    now=now,
+                )
+                sessions_to_revoke = max(
+                    0,
+                    len(active_session_ids) - self.policy.max_active_sessions + 1,
+                )
+                for session_id in active_session_ids[:sessions_to_revoke]:
+                    uow.sessions.revoke(session_id=session_id, now=now, reason="session_limit")
+
+                session_id = uow.sessions.add_session(
+                    user_id=locked_user.id,
+                    platform=command.platform,
+                    access_token_hash=access.token_hash,
+                    access_expires_at=times.access_expires_at,
+                    idle_expires_at=times.idle_expires_at,
+                    absolute_expires_at=times.absolute_expires_at,
+                    now=now,
+                )
+                uow.sessions.add_renewable(
+                    session_id=session_id,
+                    token_hash=renewable.token_hash,
+                    issued_at=now,
+                    expires_at=times.idle_expires_at,
+                )
+                # SEC-02: the successful sign-in and its session commit together.
+                uow.security_events.record(
+                    event_type="auth.login_success",
+                    actor_id=locked_user.id,
+                    result="success",
+                    correlation_id=correlation_id,
+                    context={"channel": CUSTOMER_APP_CHANNEL, "platform": command.platform},
+                )
+                uow.commit()
+                return IssuedSession(
+                    user=locked_user.public_user(),
+                    access_credential=access.raw,
+                    renewable_credential=renewable.raw,
+                    access_expires_at=times.access_expires_at,
+                    renewable_expires_at=times.idle_expires_at,
+                    absolute_expires_at=times.absolute_expires_at,
                 )
 
-            active_session_ids = uow.sessions.active_session_ids_for_user(
-                user_id=locked_user.id,
-                now=now,
-            )
-            sessions_to_revoke = max(
-                0,
-                len(active_session_ids) - self.policy.max_active_sessions + 1,
-            )
-            for session_id in active_session_ids[:sessions_to_revoke]:
-                uow.sessions.revoke(session_id=session_id, now=now, reason="session_limit")
-
-            session_id = uow.sessions.add_session(
-                user_id=locked_user.id,
-                platform=command.platform,
-                access_token_hash=access.token_hash,
-                access_expires_at=times.access_expires_at,
-                idle_expires_at=times.idle_expires_at,
-                absolute_expires_at=times.absolute_expires_at,
-                now=now,
-            )
-            uow.sessions.add_renewable(
-                session_id=session_id,
-                token_hash=renewable.token_hash,
-                issued_at=now,
-                expires_at=times.idle_expires_at,
-            )
-            uow.commit()
-
-        return IssuedSession(
-            user=locked_user.public_user(),
-            access_credential=access.raw,
-            renewable_credential=renewable.raw,
-            access_expires_at=times.access_expires_at,
-            renewable_expires_at=times.idle_expires_at,
-            absolute_expires_at=times.absolute_expires_at,
+        # The account changed between the lookup and the lock (deactivated, new password, role).
+        self._record_login_failure(
+            actor_id=snapshot.id,
+            reason=denial or "invalid_credentials",
+            platform=command.platform,
+            correlation_id=correlation_id,
         )
+        raise InvalidCredentialsError
+
+    def _record_login_failure(
+        self, *, actor_id: int | None, reason: str, platform: str, correlation_id: str
+    ) -> None:
+        """Best effort: a recording failure never changes the generic sign-in error."""
+        try:
+            with self.uow_factory() as uow:
+                uow.security_events.record(
+                    event_type="auth.login_failed",
+                    actor_id=actor_id,
+                    result="denied" if reason in _DENIED_REASONS else "failure",
+                    correlation_id=correlation_id,
+                    context={
+                        "reason": reason,
+                        "channel": CUSTOMER_APP_CHANNEL,
+                        "platform": platform,
+                    },
+                )
+                uow.commit()
+        except Exception as exc:
+            logger.warning(
+                "Customer sign-in failure could not be recorded",
+                extra={
+                    "correlation_id": correlation_id,
+                    "event": "audit.login_failure_unrecorded",
+                    "error_type": type(exc).__name__,
+                    "outcome": "denied",
+                },
+            )
 
     def refresh(self, raw_renewable: str) -> IssuedSession:
         renewable_hash = self.credential_codec.try_hash_presented(raw_renewable)
@@ -187,7 +255,7 @@ class SessionService:
             raise AuthenticationRequiredError
         return principal
 
-    def logout(self, raw_renewable: str) -> None:
+    def logout(self, raw_renewable: str, *, correlation_id: str = "unavailable") -> None:
         renewable_hash = self.credential_codec.try_hash_presented(raw_renewable)
         if renewable_hash is None:
             return
@@ -203,6 +271,13 @@ class SessionService:
                 and session.revoked_at is None
             ):
                 uow.sessions.revoke(session_id=session_id, now=now, reason="logout")
+                uow.security_events.record(
+                    event_type="auth.logout",
+                    actor_id=session.user.id,
+                    result="success",
+                    correlation_id=correlation_id,
+                    context={"channel": CUSTOMER_APP_CHANNEL, "platform": session.platform},
+                )
             uow.commit()
 
     def cleanup_terminal_sessions(self, *, batch_size: int = 100) -> int:

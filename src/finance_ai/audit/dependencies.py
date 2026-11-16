@@ -17,6 +17,7 @@ from finance_ai.audit.policy import (
     DEFAULT_TIME_ZONE,
     EVENT_TYPE_PATTERN,
     TARGET_ID_PATTERN,
+    AuditActorRole,
     AuditFilters,
     AuditOutcome,
     AuditPeriod,
@@ -100,11 +101,16 @@ def audit_filters(
     target_type: Annotated[AuditTargetType | None, Query()] = None,
     target_id: Annotated[str | None, Query(pattern=TARGET_ID_PATTERN)] = None,
     correlation_id: Annotated[str | None, Query(pattern=CORRELATION_ID_PATTERN)] = None,
+    actor_role: Annotated[
+        AuditActorRole | None,
+        Query(description="Role the actor held when the event was recorded."),
+    ] = None,
 ) -> AuditFilters:
     return AuditFilters(
         event_type=event_type,
         outcome=outcome,
         actor_id=actor_id,
+        actor_role=actor_role,
         target_type=target_type,
         target_id=target_id,
         correlation_id=correlation_id,

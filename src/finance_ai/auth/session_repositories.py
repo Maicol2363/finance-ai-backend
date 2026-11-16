@@ -98,3 +98,17 @@ class SessionRepository(Protocol):
     ) -> PublicAuthenticatedUser | None: ...
 
     def cleanup_terminal(self, *, cutoff: datetime, now: datetime, batch_size: int) -> int: ...
+
+
+class SecurityEventRepository(Protocol):
+    """SEC-02 evidence for customer sign-in, staged in the unit of work's transaction."""
+
+    def record(
+        self,
+        *,
+        event_type: str,
+        actor_id: int | None,
+        result: str,
+        correlation_id: str,
+        context: dict[str, str],
+    ) -> None: ...

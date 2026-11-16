@@ -71,7 +71,9 @@ def login(
         client_key=client_key,
         normalized_email=payload.email.strip().lower(),
     )
-    return IssuedSessionResponse.from_result(service.login(payload.to_command()))
+    return IssuedSessionResponse.from_result(
+        service.login(payload.to_command(), correlation_id=_correlation(request))
+    )
 
 
 @router.post(
@@ -128,7 +130,12 @@ def current_user(
 )
 def logout(
     payload: RenewableCredentialRequest,
+    request: Request,
     service: Annotated[SessionService, Depends(get_session_service)],
 ) -> Response:
-    service.logout(payload.raw_credential())
+    service.logout(payload.raw_credential(), correlation_id=_correlation(request))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _correlation(request: Request) -> str:
+    return str(getattr(request.state, "correlation_id", "unavailable"))

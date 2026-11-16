@@ -92,6 +92,8 @@ class Store:
     next_session_id: int = 1
     next_renewable_id: int = 1
     commits: int = 0
+    security_events: list[dict[str, object]] = field(default_factory=list)
+    fail_security_events: bool = False
 
 
 class FakeUsers:
@@ -279,11 +281,38 @@ class FakeSessions:
         return len(eligible)
 
 
+class FakeSecurityEvents:
+    def __init__(self, store: Store) -> None:
+        self.store = store
+
+    def record(
+        self,
+        *,
+        event_type: str,
+        actor_id: int | None,
+        result: str,
+        correlation_id: str,
+        context: dict[str, str],
+    ) -> None:
+        if self.store.fail_security_events:
+            raise RuntimeError("audit store unavailable")
+        self.store.security_events.append(
+            {
+                "event_type": event_type,
+                "actor_id": actor_id,
+                "result": result,
+                "correlation_id": correlation_id,
+                "context": context,
+            }
+        )
+
+
 class FakeUow:
     def __init__(self, store: Store) -> None:
         self.store = store
         self.users = FakeUsers(store)
         self.sessions = FakeSessions(store)
+        self.security_events = FakeSecurityEvents(store)
 
     def __enter__(self) -> FakeUow:
         return self
@@ -476,3 +505,110 @@ def test_customer_refresh_is_revoked_after_promotion_to_security_auditor() -> No
     with pytest.raises(SessionInvalidError):
         service.refresh(issued.renewable_credential)
     assert store.sessions[1].revocation_reason == "authority_changed"
+
+
+def _with_user(store: Store, **changes: object) -> None:
+    assert store.user is not None
+    values = {
+        "id": store.user.id,
+        "email": store.user.email,
+        "password_hash": store.user.password_hash,
+        "preferred_currency": store.user.preferred_currency,
+        "is_active": store.user.is_active,
+        "role_name": store.user.role_name,
+    }
+    values.update(changes)
+    store.user = AuthUserRecord(**values)  # type: ignore[arg-type]
+
+
+def test_customer_sign_in_records_sec02_success_with_origin_and_correlation() -> None:
+    service, store, _, _ = make_service()
+    service.login(
+        LoginCommand(email="person@example.com", password="correct-password", platform="android"),
+        correlation_id="mobile-login-1",
+    )
+
+    assert store.security_events == [
+        {
+            "event_type": "auth.login_success",
+            "actor_id": 7,
+            "result": "success",
+            "correlation_id": "mobile-login-1",
+            "context": {"channel": "customer_app", "platform": "android"},
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("change", "actor_id", "reason", "result"),
+    [
+        ("unknown", None, "invalid_credentials", "failure"),
+        ("wrong_password", 7, "invalid_credentials", "failure"),
+        ("inactive", 7, "account_inactive", "denied"),
+        ("security_auditor", 7, "role_not_permitted", "denied"),
+        ("admin", 7, "role_not_permitted", "denied"),
+    ],
+)
+def test_failed_customer_sign_in_records_a_sanitized_reason_and_stays_generic(
+    change: str, actor_id: int | None, reason: str, result: str
+) -> None:
+    service, store, _, _ = make_service()
+    password = "correct-password"
+    if change == "unknown":
+        store.user = None
+    elif change == "wrong_password":
+        password = "wrong-password"
+    elif change == "inactive":
+        _with_user(store, is_active=False)
+    else:
+        _with_user(store, role_name=change)
+
+    with pytest.raises(InvalidCredentialsError) as failure:
+        service.login(
+            LoginCommand(email="person@example.com", password=password, platform="windows"),
+            correlation_id="mobile-login-2",
+        )
+
+    assert failure.value.code == "invalid_credentials"
+    assert store.sessions == {}
+    assert store.security_events == [
+        {
+            "event_type": "auth.login_failed",
+            "actor_id": actor_id,
+            "result": result,
+            "correlation_id": "mobile-login-2",
+            "context": {"reason": reason, "channel": "customer_app", "platform": "windows"},
+        }
+    ]
+    # Never the email address or the password in the evidence.
+    assert "person@example.com" not in str(store.security_events)
+    assert password not in str(store.security_events)
+
+
+def test_unrecorded_sign_in_failure_still_returns_the_generic_error() -> None:
+    service, store, _, _ = make_service()
+    store.user = None
+    store.fail_security_events = True
+
+    with pytest.raises(InvalidCredentialsError):
+        login(service)
+    assert store.security_events == []
+
+
+def test_customer_logout_records_sec02_logout_once() -> None:
+    service, store, _, _ = make_service()
+    issued = login(service)
+    store.security_events.clear()
+
+    service.logout(issued.renewable_credential, correlation_id="mobile-logout-1")
+    service.logout(issued.renewable_credential, correlation_id="mobile-logout-2")
+
+    assert store.security_events == [
+        {
+            "event_type": "auth.logout",
+            "actor_id": 7,
+            "result": "success",
+            "correlation_id": "mobile-logout-1",
+            "context": {"channel": "customer_app", "platform": "windows"},
+        }
+    ]

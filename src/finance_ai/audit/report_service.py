@@ -138,6 +138,7 @@ class AuditReportService:
                         event_type=row.event_type,
                         outcome=row.result,
                         actor_id=row.actor_id,
+                        actor_role=row.actor_role,
                         target_type=row.target_resource_type,
                         target_id=row.target_resource_id,
                         correlation_id=row.correlation_id,
