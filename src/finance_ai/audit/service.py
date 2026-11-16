@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Final
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from finance_ai.core.logging import get_logger
@@ -94,18 +95,11 @@ _MAX_CONTEXT_VALUE_LENGTH: Final = 128
 class SecurityAuditWriter:
     """Append sanitized security evidence in the caller's transaction."""
 
-    def append(
-        self,
-        session: Session,
-        *,
-        event_type: str,
-        actor_id: str | None,
-        result: str,
-        correlation_id: str,
-        context: dict[str, str],
-        target_id: str | None = None,
-        target_type: str | None = None,
+    @staticmethod
+    def validate(
+        *, event_type: str, result: str, context: dict[str, str], target_type: str | None
     ) -> None:
+        """Reject anything outside the SEC-02 allowlist before it can reach the evidence."""
         allowed_keys = _CONTEXT_KEYS_BY_EVENT.get(event_type, _DEFAULT_CONTEXT_KEYS)
         if (
             event_type not in _ALLOWED_EVENT_TYPES
@@ -118,6 +112,22 @@ class SecurityAuditWriter:
             )
         ):
             raise ValueError("Audit event contains an unapproved field")
+
+    def append(
+        self,
+        session: Session,
+        *,
+        event_type: str,
+        actor_id: str | None,
+        result: str,
+        correlation_id: str,
+        context: dict[str, str],
+        target_id: str | None = None,
+        target_type: str | None = None,
+    ) -> None:
+        self.validate(
+            event_type=event_type, result=result, context=context, target_type=target_type
+        )
         resolved_target_type = (
             None
             if target_id is None
@@ -141,25 +151,35 @@ class SecurityAuditWriter:
         )
 
 
-class AccessDenialRecorder:
-    """Record ``access.denied`` for an authenticated principal without request contents."""
+# Database-defined denial evidence (migration 0022): only these enumerated values are accepted.
+_RECORD_ACCESS_DENIED = text(
+    "CALL sp_audit_record_access_denied("
+    ":actor_id, :resource, :reason, :correlation_id, :occurred_at)"
+)
 
-    def __init__(self, session_factory: sessionmaker[Session], writer: SecurityAuditWriter) -> None:
+
+class AccessDenialRecorder:
+    """Record ``access.denied`` for an authenticated principal without request contents.
+
+    The stored procedure ``sp_audit_record_access_denied`` builds the event from an enumerated
+    resource and reason only, so no request content can reach the evidence.
+    """
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
-        self._writer = writer
 
     def record(self, *, actor_id: int, resource: str, reason: str, correlation_id: str) -> None:
         try:
             with self._session_factory() as session, session.begin():
-                self._writer.append(
-                    session,
-                    event_type="access.denied",
-                    actor_id=str(actor_id),
-                    target_id=resource,
-                    target_type="protected_resource",
-                    result="denied",
-                    correlation_id=correlation_id,
-                    context={"reason": reason, "resource": resource},
+                session.execute(
+                    _RECORD_ACCESS_DENIED,
+                    {
+                        "actor_id": actor_id,
+                        "resource": resource,
+                        "reason": reason,
+                        "correlation_id": correlation_id,
+                        "occurred_at": datetime.now(UTC),
+                    },
                 )
         except Exception as exc:
             # The request is still denied: a logging failure never turns into access.

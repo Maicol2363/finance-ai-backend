@@ -74,6 +74,24 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
   informe; el catálogo publica `actor_roles`. Los eventos sin rol registrado no coinciden con ningún
   rol. El PDF muestra el rol junto al actor y el filtro aplicado (`filter_actor_role`).
 
+### Rutinas de base de datos (migraciones 0018, 0021 y 0022)
+
+Cada rutina hace cumplir dentro de PostgreSQL una regla que la aplicación ya sigue; ninguna agrega
+funciones nuevas.
+
+| Rutina | Tipo | Qué garantiza | Requisito |
+|---|---|---|---|
+| `security_audit_event_append_only` (0018) | Trigger | La evidencia no se modifica ni se borra | SEC-02 |
+| `security_audit_event_actor_role` (0021) | Trigger | El rol del actor se calcula al insertar y no se puede falsear | AUD-01 a AUD-04 |
+| `staff_mfa_challenge_one_time_guard` (0022) | Trigger | Un reto consumido no se reabre; no cambia de cuenta, token ni vencimiento; los intentos fallidos no bajan | SEC-01 (inicio de sesión del auditor) |
+| `admin_totp_factor_replay_guard` (0022) | Trigger | El último paso TOTP aceptado nunca retrocede, el secreto no cambia y un autenticador desactivado no se reactiva | SEC-01 (antirreplay) |
+| `sp_audit_record_report_export` (0022) | Procedimiento | Con la cuenta del auditor bloqueada en modo compartido, vuelve a comprobar que es un `security_auditor` activo con activación válida y registra `audit.report_exported` en la misma transacción | AUD-04 |
+| `sp_audit_record_access_denied` (0022) | Procedimiento | Registra `access.denied` con forma fija a partir de un recurso y un motivo enumerados; ningún contenido de la solicitud llega a la evidencia | Control de roles |
+
+Si el procedimiento de exportación rechaza la autoridad (`SQLSTATE 42501`), el PDF no se entrega
+(403). En producción `get_audit_report_service` usa `ProcedureExportRecorder`; las pruebas
+unitarias sobre SQLite usan el registrador basado en el escritor.
+
 ### Inicios de sesión de la app de clientes
 
 La API de clientes (app Flutter en Android y Windows) registra los eventos aprobados de SEC-02:
