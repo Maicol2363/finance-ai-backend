@@ -85,6 +85,17 @@ def test_the_right_token_runs_one_sweep_and_reports_counts(
     assert fake.calls == 1
 
 
+def test_strangers_without_the_token_cannot_use_up_the_schedulers_budget(
+    client: tuple[TestClient, FakeDispatcher],
+) -> None:
+    http, fake = client
+
+    refused = [http.post(URL, headers={"X-Dispatch-Token": "wrong"}).status_code for _ in range(40)]
+    real = http.post(URL, headers={"X-Dispatch-Token": TOKEN})
+
+    assert set(refused) == {401} and real.status_code == 200 and fake.calls == 1
+
+
 def test_the_endpoint_is_rate_limited(client: tuple[TestClient, FakeDispatcher]) -> None:
     http, _ = client
 

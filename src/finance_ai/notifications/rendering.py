@@ -90,7 +90,7 @@ def render_budget_alert(
 ) -> RenderedEmail:
     name = _single_line(budget_name, 80)
     percent = (spent / limit * Decimal(100)) if limit > 0 else Decimal(100)
-    percent_text = format_percent(percent)
+    percent_text = format_percent(percent, under_limit=spent < limit)
     exceeded = spent > limit
     reached_limit = threshold >= 100
     background, color, bar_color = _DANGER if reached_limit else _WARNING

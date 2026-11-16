@@ -63,6 +63,21 @@ def test_extra_headers_such_as_list_unsubscribe_are_added() -> None:
     assert mime["List-Unsubscribe"] == "<https://x.example/u?t=1>" and mime["X-Kind"] == "budget"
 
 
+def test_an_accented_subject_keeps_normal_folding_next_to_a_long_unsubscribe_link() -> None:
+    url = "https://api.finance.example.com/public/unsubscribe?token=v1.1234." + "A" * 43
+    subject = "Superaste el límite de tu presupuesto «Mercado del mes y otros gastos»"
+    mime, _ = build_mime(message(subject=subject, headers={"List-Unsubscribe": f"<{url}>"}))
+
+    crlf = bytes([13, 10])
+    header_lines = mime.as_bytes().split(crlf * 2, 1)[0].split(crlf)
+    encoded_words = [
+        word for line in header_lines for word in line.split() if word.startswith(b"=?")
+    ]
+    assert encoded_words and all(len(word) <= 75 for word in encoded_words)  # RFC 2047 limit
+    assert f"List-Unsubscribe: <{url}>".encode() in header_lines
+    assert str(message_from_bytes(mime.as_bytes(), policy=policy.default)["Subject"]) == subject
+
+
 def test_a_long_unsubscribe_link_stays_a_plain_header_on_the_wire() -> None:
     # A real link is longer than one folded line and has no spaces to fold at. It must not be
     # turned into an RFC 2047 encoded word: mail clients read this header literally.
@@ -211,8 +226,26 @@ def test_a_local_inbox_without_credentials_skips_login(fake_smtp: type[FakeSmtp]
     ("error", "code", "retryable"),
     [
         (smtplib.SMTPAuthenticationError(535, b"bad credentials"), "provider_auth_failed", False),
+        (
+            smtplib.SMTPAuthenticationError(454, b"temporarily unavailable"),
+            "provider_auth_failed",
+            True,
+        ),
         (smtplib.SMTPRecipientsRefused({"a@b.c": (550, b"no")}), "recipient_rejected", False),
+        (
+            smtplib.SMTPRecipientsRefused({"a@b.c": (450, b"greylisted")}),
+            "recipient_rejected",
+            True,
+        ),
+        (smtplib.SMTPRecipientsRefused({"a@b.c": (452, b"busy")}), "recipient_rejected", True),
+        (
+            smtplib.SMTPRecipientsRefused({"a@b.c": (450, b"x"), "d@e.f": (550, b"y")}),
+            "recipient_rejected",
+            False,
+        ),
+        (smtplib.SMTPRecipientsRefused({}), "recipient_rejected", False),
         (smtplib.SMTPSenderRefused(553, b"no", "a@b.c"), "sender_rejected", False),
+        (smtplib.SMTPSenderRefused(421, b"service busy", "a@b.c"), "sender_rejected", True),
         (smtplib.SMTPResponseException(450, b"try later"), "provider_error", True),
         (smtplib.SMTPResponseException(554, b"rejected"), "provider_error", False),
         (smtplib.SMTPServerDisconnected("gone"), "provider_unavailable", True),

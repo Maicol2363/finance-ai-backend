@@ -21,6 +21,7 @@ from finance_ai.db.models.notifications import (
 from finance_ai.notifications.account import mask_email
 from finance_ai.notifications.messages import EmailSendError
 from finance_ai.notifications.outbox import enqueue
+from finance_ai.notifications.senders import build_mime
 from tests.notification_support import (
     ANA,
     ANA_ADDRESS,
@@ -130,7 +131,9 @@ def test_requesting_a_code_emails_it_and_stores_only_a_hash(env: Env) -> None:
     assert (
         code in message.text_body.replace(" ", "") and f"{code[:3]} {code[3:]}" in message.html_body
     )
-    assert message.headers["Auto-Submitted"] == "auto-generated"
+    # build_mime marks every message auto-generated; the caller must not add a second header.
+    assert "Auto-Submitted" not in message.headers
+    assert build_mime(message)[0].get_all("Auto-Submitted") == ["auto-generated"]
     assert (issued.email_hint, issued.expires_in_seconds, issued.resend_in_seconds) == (
         "a***@example.com",
         15 * 60,
@@ -202,6 +205,33 @@ def test_a_delivery_failure_is_reported_and_does_not_burn_the_limits(env: Env) -
     env.sender.failure = None
     env.service.request_verification(ANA)  # no cooldown: the first code never left
     assert len(env.sender.sent) == 1
+
+
+def test_a_failed_resend_leaves_the_earlier_code_in_the_inbox_usable(env: Env) -> None:
+    env.service.request_verification(ANA)
+    first = env.sender.last_code()
+    env.clock.advance(seconds=61)
+    env.sender.failure = EmailSendError("provider_unavailable", retryable=True)
+
+    with fails_with("email_delivery_failed", 503):
+        env.service.request_verification(ANA)
+
+    env.sender.failure = None
+    assert env.service.confirm_verification(ANA, first).email_verified is True
+
+
+def test_a_failed_resend_does_not_reopen_an_earlier_code_that_has_expired(env: Env) -> None:
+    env.service.request_verification(ANA)
+    first = env.sender.last_code()
+    env.clock.advance(minutes=16)
+    env.sender.failure = EmailSendError("provider_unavailable", retryable=True)
+
+    with fails_with("email_delivery_failed", 503):
+        env.service.request_verification(ANA)
+
+    env.sender.failure = None
+    with fails_with("verification_code_invalid", 400):
+        env.service.confirm_verification(ANA, first)
 
 
 def test_an_already_verified_address_does_not_get_another_code(env: Env) -> None:
@@ -354,6 +384,27 @@ def test_a_test_email_that_cannot_be_delivered_now_is_queued_for_the_retry(env: 
     env.sender.failure = EmailSendError("provider_unavailable", retryable=True)
 
     assert env.service.send_test_email(VERIFIED_USER).status == "queued"
+
+
+def test_a_test_email_that_fails_for_good_is_reported_not_called_queued(env: Env) -> None:
+    env.sender.failure = EmailSendError("provider_auth_failed", retryable=False)
+
+    with fails_with("email_delivery_failed", 503):
+        env.service.send_test_email(VERIFIED_USER)
+
+
+def test_a_test_email_blocked_by_the_daily_cap_is_reported_not_called_queued() -> None:
+    env = build_env(
+        Settings(
+            _env_file=None,
+            email_from_address="avisos@finance.example.com",
+            email_daily_cap_per_user=1,
+        )
+    )
+    assert env.service.send_test_email(VERIFIED_USER).status == "sent"
+
+    with fails_with("email_delivery_failed", 503):
+        env.service.send_test_email(VERIFIED_USER)
 
 
 # --- unsubscribe ---------------------------------------------------------------------------

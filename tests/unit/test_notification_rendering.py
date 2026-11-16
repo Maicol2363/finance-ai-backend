@@ -85,6 +85,9 @@ def test_amounts_follow_the_spanish_convention(
 def test_percentages_are_whole_numbers_with_a_space() -> None:
     assert format_percent(Decimal("79.5")) == "80 %"
     assert format_percent(Decimal("102.4")) == "102 %"
+    assert format_percent(Decimal("99.6")) == "100 %"  # at or over the limit the usual rounding
+    assert format_percent(Decimal("99.6"), under_limit=True) == "99 %"
+    assert format_percent(Decimal("85.9"), under_limit=True) == "85 %"
 
 
 def test_periods_repeat_month_and_year_only_when_they_change() -> None:
@@ -120,6 +123,14 @@ def test_the_eighty_percent_alert_is_branded_html_with_a_text_alternative() -> N
     assert "<" not in email.text.replace("«", "").replace("»", "")
     assert len(email.inline_images) == 1
     assert email.inline_images[0].content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_an_alert_just_below_the_limit_never_says_one_hundred_percent() -> None:
+    email = alert(threshold=80, spent=Decimal("597000"))  # 99.5 % of 600 000
+
+    assert email.subject == "Llevas el 99 % de tu presupuesto «Mercado»"
+    assert "100 %" not in email.html and "100 %" not in email.text
+    assert "Disponible" in email.html  # there is still money left
 
 
 def test_reaching_the_limit_uses_the_danger_style_and_says_so() -> None:

@@ -200,6 +200,7 @@ class NotificationAccountService:
         now = self._clock()
         code = new_verification_code()
         expires = timedelta(minutes=self._settings.email_verification_minutes)
+        previous_ids: list[int] = []  # the code this request replaces, if any
         try:
             with self._factory() as session, session.begin():
                 user = self._load_user(session, user_id)
@@ -212,13 +213,16 @@ class NotificationAccountService:
                     )
                 address = user.email
                 self._enforce_code_limits(session, user_id, now)
-                session.execute(
-                    update(EmailVerification)
-                    .where(
-                        EmailVerification.user_id == user_id,
-                        EmailVerification.consumed_at.is_(None),
+                previous_ids = list(
+                    session.scalars(
+                        update(EmailVerification)
+                        .where(
+                            EmailVerification.user_id == user_id,
+                            EmailVerification.consumed_at.is_(None),
+                        )
+                        .values(consumed_at=now)
+                        .returning(EmailVerification.id)
                     )
-                    .values(consumed_at=now)
                 )
                 verification = EmailVerification(
                     user_id=user_id,
@@ -244,13 +248,12 @@ class NotificationAccountService:
             from_address=self._settings.email_from_address or "no-reply@finance-ai.invalid",
             from_name=self._settings.email_from_name,
             reply_to=self._settings.email_reply_to,
-            headers={"Auto-Submitted": "auto-generated"},
             inline_images=rendered.inline_images,
         )
         try:
             self._sender_factory().send(message)
         except EmailSendError as error:
-            self._discard_verification(verification_id)
+            self._discard_verification(verification_id, restore=previous_ids)
             logger.warning(
                 "Verification email not sent",
                 extra={
@@ -369,6 +372,14 @@ class NotificationAccountService:
             status = session.scalar(
                 select(NotificationOutbox.status).where(NotificationOutbox.dedupe_key == dedupe_key)
             )
+        if status in ("failed", "skipped"):
+            # Final outcomes: telling the person it is "queued" would promise mail that never comes.
+            raise AccountNotificationError(
+                status=503,
+                code="email_delivery_failed",
+                title="The test email could not be sent",
+                detail="We could not send the test email. Try again in a few minutes.",
+            )
         return TestEmailResult(status="sent" if status == "sent" else "queued")
 
     # --- helpers --------------------------------------------------------------------------
@@ -465,9 +476,20 @@ class NotificationAccountService:
             retry_after=max(seconds, 1),
         )
 
-    def _discard_verification(self, verification_id: int) -> None:
-        """A code that never left the building must not count against the person's limits."""
+    def _discard_verification(self, verification_id: int, *, restore: list[int]) -> None:
+        """A code that never left the building must not count against the person's limits, and
+        must not cost them the earlier code that is still in their inbox: reopen it if it has
+        not expired."""
         with self._factory() as session, session.begin():
             session.execute(
                 delete(EmailVerification).where(EmailVerification.id == verification_id)
             )
+            if restore:
+                session.execute(
+                    update(EmailVerification)
+                    .where(
+                        EmailVerification.id.in_(restore),
+                        EmailVerification.expires_at > self._clock(),
+                    )
+                    .values(consumed_at=None)
+                )

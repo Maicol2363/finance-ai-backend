@@ -51,6 +51,16 @@ def _authorize(settings: Settings, presented: str | None, request: Request) -> N
             title="Notification dispatch is not enabled",
             detail="This endpoint is not configured.",
         )
+    expected = token.get_secret_value().encode()
+    if presented is None or not hmac.compare_digest(presented.encode(), expected):
+        raise AppError(
+            status=401,
+            code="dispatch_token_invalid",
+            title="Dispatch token is not valid",
+            detail="The dispatch credential is missing or invalid.",
+        )
+    # Only a caller that knows the secret spends the budget, so strangers hammering the URL
+    # (all of them can share one proxy address behind Cloud Run) cannot lock the scheduler out.
     peer = request.client.host if request.client else "unknown"
     if not _limiter().hit(parse("30/minute"), "notification-dispatch", peer):
         raise AppError(
@@ -59,14 +69,6 @@ def _authorize(settings: Settings, presented: str | None, request: Request) -> N
             title="Too many dispatch requests",
             detail="Please wait before trying again.",
             headers={"Retry-After": "60"},
-        )
-    expected = token.get_secret_value().encode()
-    if presented is None or not hmac.compare_digest(presented.encode(), expected):
-        raise AppError(
-            status=401,
-            code="dispatch_token_invalid",
-            title="Dispatch token is not valid",
-            detail="The dispatch credential is missing or invalid.",
         )
 
 

@@ -27,7 +27,43 @@ from finance_ai.notifications.messages import EmailMessage, EmailSendError, Send
 
 _HEADER_FORBIDDEN = re.compile(r"[\r\n]")
 _MAX_SUBJECT_LENGTH = 200
-_FOLD_AT = 78  # the library folds headers at this length unless told otherwise
+# Headers whose value is a URL: there is nothing to fold at, and mail clients read them literally.
+_UNFOLDED_HEADERS = frozenset({"list-unsubscribe"})
+_MAX_HEADER_LINE = 998  # RFC 5322 hard limit
+
+
+class _MailPolicy(policy.EmailPolicy):
+    """The SMTP policy, except that a URL header stays on one line.
+
+    At the usual 78-character limit the library rewrites an unfoldable value such as the
+    List-Unsubscribe link as an RFC 2047 encoded word, which mail clients do not read in that
+    header. Every other header (an accented subject, for instance) keeps the normal folding.
+    """
+
+    def _stays_on_one_line(self, name: str, value: str) -> bool:
+        return (
+            name.lower() in _UNFOLDED_HEADERS
+            and value.isascii()
+            and len(name) + len(value) + 2 <= _MAX_HEADER_LINE
+        )
+
+    def fold(self, name: str, value: str) -> str:
+        if self._stays_on_one_line(name, value):
+            return f"{name}: {value}{self.linesep}"
+        return str(super().fold(name, value))
+
+    def fold_binary(self, name: str, value: str) -> bytes:
+        if self._stays_on_one_line(name, value):
+            return f"{name}: {value}{self.linesep}".encode("ascii")
+        return bytes(super().fold_binary(name, value))
+
+
+_MAIL_POLICY = _MailPolicy(linesep=policy.SMTP.linesep)
+
+
+def _temporary(smtp_code: int) -> bool:
+    """4xx SMTP replies are temporary, 5xx are final."""
+    return 400 <= smtp_code < 500
 
 
 class EmailSender(Protocol):
@@ -59,14 +95,7 @@ def build_mime(message: EmailMessage) -> tuple[MimeMessage, str]:
         raise EmailSendError("invalid_header_subject", retryable=False)
     display_name = _clean_header("From", message.from_name)
 
-    # A URL header such as List-Unsubscribe has no spaces to fold at. At the usual 78-character
-    # limit the library would rewrite it as an RFC 2047 encoded word, which mail clients do not
-    # read in that header. The hard limit is 998, so allow it, but only when one is present.
-    unfoldable = any(
-        " " not in value and len(name) + len(value) + 2 > _FOLD_AT
-        for name, value in message.headers.items()
-    )
-    mime = MimeMessage(policy=policy.SMTP.clone(max_line_length=998) if unfoldable else policy.SMTP)
+    mime = MimeMessage(policy=_MAIL_POLICY)
     mime["Subject"] = subject
     mime["From"] = formataddr((display_name, sender))
     mime["To"] = recipient
@@ -148,15 +177,22 @@ class SmtpEmailSender:
                 if self._username is not None and self._password is not None:
                     smtp.login(self._username, self._password)
                 smtp.send_message(mime)
-        except smtplib.SMTPAuthenticationError:
-            raise EmailSendError("provider_auth_failed", retryable=False) from None
-        except smtplib.SMTPRecipientsRefused:
-            raise EmailSendError("recipient_rejected", retryable=False) from None
-        except smtplib.SMTPSenderRefused:
-            raise EmailSendError("sender_rejected", retryable=False) from None
+        except smtplib.SMTPAuthenticationError as error:
+            # Almost always a wrong password (535), but 454 means "temporarily unavailable".
+            raise EmailSendError(
+                "provider_auth_failed", retryable=_temporary(error.smtp_code)
+            ) from None
+        except smtplib.SMTPRecipientsRefused as error:
+            # Refused only when every recipient was; a 450/451/452 (greylisting, mailbox busy)
+            # is worth another attempt, a 550/553 is final.
+            codes = [code for code, _ in error.recipients.values()]
+            raise EmailSendError(
+                "recipient_rejected", retryable=bool(codes) and all(_temporary(c) for c in codes)
+            ) from None
+        except smtplib.SMTPSenderRefused as error:
+            raise EmailSendError("sender_rejected", retryable=_temporary(error.smtp_code)) from None
         except smtplib.SMTPResponseException as error:
-            # 4xx replies are temporary, 5xx are final.
-            raise EmailSendError("provider_error", retryable=400 <= error.smtp_code < 500) from None
+            raise EmailSendError("provider_error", retryable=_temporary(error.smtp_code)) from None
         except smtplib.SMTPException, OSError, ssl.SSLError:
             raise EmailSendError("provider_unavailable", retryable=True) from None
         return SendResult(provider_message_id=message_id)

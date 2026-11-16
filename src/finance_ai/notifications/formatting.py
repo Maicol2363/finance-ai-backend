@@ -4,7 +4,7 @@ must not depend on what the server happens to have installed."""
 from __future__ import annotations
 
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 _MONTHS = (
     "enero",
@@ -33,9 +33,13 @@ def format_amount(amount: Decimal, currency_code: str) -> str:
     return f"{sign}{prefix} {number}"
 
 
-def format_percent(percent: Decimal) -> str:
-    """Whole percentages (``80 %``, ``102 %``); the space follows the Spanish convention."""
-    whole = percent.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+def format_percent(percent: Decimal, *, under_limit: bool = False) -> str:
+    """Whole percentages (``80 %``, ``102 %``); the space follows the Spanish convention.
+
+    ``under_limit`` rounds down instead of to the nearest: 99.6 % of a budget is not "100 %",
+    which would claim the limit was reached while there is still money available."""
+    rounding = ROUND_FLOOR if under_limit else ROUND_HALF_UP
+    whole = percent.quantize(Decimal("1"), rounding=rounding)
     return f"{int(whole)} %"
 
 
