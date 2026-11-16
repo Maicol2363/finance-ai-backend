@@ -821,6 +821,154 @@ class MfaRateLimitedError(AppError):
         )
 
 
+class MfaRecoveryInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="mfa_recovery_invalid",
+            title="Recovery could not be verified",
+            detail=(
+                "The email, password or recovery proof is not valid. "
+                "Contact an administrator if you cannot recover access."
+            ),
+        )
+
+
+class PasswordConfirmationInvalidError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=403,
+            code="password_confirmation_invalid",
+            title="Password confirmation failed",
+            detail="The password you entered is not correct.",
+        )
+
+
+class AdminRateLimitedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=429,
+            code="admin_rate_limited",
+            title="Too many administrator requests",
+            detail="Please wait before trying again.",
+            headers={"Retry-After": "60"},
+        )
+
+
+class AdminRequestInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="admin_request_invalid",
+            title="Request is invalid",
+            detail="Correct the highlighted fields and try again.",
+            field_errors=field_errors,
+        )
+
+
+class AdminAccountNotFoundError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=404,
+            code="account_not_found",
+            title="Account not found",
+            detail="No login account matches this lookup.",
+        )
+
+
+class AdminSelfActionError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="admin_self_action_denied",
+            title="Action not allowed on your own account",
+            detail="You cannot perform this action on your own account.",
+        )
+
+
+class LastActiveAdminError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="last_active_admin_protected",
+            title="Last active administrator",
+            detail="This change would leave the system without an active administrator.",
+        )
+
+
+class AccountStateConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="account_state_conflict",
+            title="Account is already in that state",
+            detail="The account is already in the requested state. Refresh and try again.",
+        )
+
+
+class StaffEmailUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="staff_email_unavailable",
+            title="Email is unavailable",
+            detail="An account or a pending invitation already uses this email address.",
+            field_errors={"email": ["This email address is not available."]},
+        )
+
+
+class StaffActivationInvalidError(AppError):
+    """One generic outcome for unknown, expired, replayed or malformed activation links."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status=400,
+            code="activation_invalid",
+            title="Activation link is not valid",
+            detail=(
+                "This activation link is invalid, expired or already used. "
+                "Ask an administrator for a new one."
+            ),
+        )
+
+
+class ActivationPasswordInvalidError(AppError):
+    def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
+        super().__init__(
+            status=422,
+            code="activation_password_invalid",
+            title="Password is not acceptable",
+            detail="Choose a different password and try again.",
+            field_errors=field_errors,
+        )
+
+
+class RoleChangeNotAllowedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="role_change_not_allowed",
+            title="Role change not allowed",
+            detail=(
+                "Only support agents and security auditors can be switched between those two "
+                "roles here. Administrator and customer roles are not changed through the portal."
+            ),
+        )
+
+
+class EscalationClaimConflictError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=409,
+            code="escalation_claim_conflict",
+            title="Escalated case is no longer available",
+            detail=(
+                "Another administrator owns this case or it is no longer escalated. "
+                "Refresh the list and try again."
+            ),
+        )
+
+
 class AuditQueryInvalidError(AppError):
     def __init__(self, field_errors: Mapping[str, list[str]]) -> None:
         super().__init__(

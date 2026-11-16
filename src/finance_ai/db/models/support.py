@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Identity, Index, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from finance_ai.db.base import Base, BigIntPK
@@ -19,6 +29,10 @@ class SupportTicket(Base):
         CheckConstraint("length(trim(subject)) > 0", name="subject_nonempty"),
         CheckConstraint("length(trim(category)) > 0", name="category_nonempty"),
         CheckConstraint("length(trim(description)) > 0", name="description_nonempty"),
+        CheckConstraint(
+            "admin_owner_user_id IS NULL OR status = 'escalated'",
+            name="admin_owner_only_when_escalated",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
@@ -36,6 +50,10 @@ class SupportTicket(Base):
         ForeignKey("app_user.id", ondelete="RESTRICT")
     )
     originating_support_agent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT")
+    )
+    # ADM-05: the administrator who currently owns an escalated case (else NULL).
+    admin_owner_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("app_user.id", ondelete="RESTRICT")
     )
     resolution_summary: Mapped[str | None] = mapped_column(Text)
@@ -143,4 +161,11 @@ Index(
     SupportTicketMessage.ticket_id,
     SupportTicketMessage.created_at,
     SupportTicketMessage.id,
+)
+Index(
+    "ix_support_ticket_escalated_queue",
+    SupportTicket.created_at,
+    SupportTicket.id,
+    postgresql_where=text("status = 'escalated'"),
+    sqlite_where=text("status = 'escalated'"),
 )

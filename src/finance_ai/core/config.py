@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     staff_mfa_issuer: str = Field(default="FinanciAI", pattern=r"^[A-Za-z0-9 ._-]{1,64}$")
     staff_mfa_challenge_minutes: int = Field(default=5, ge=1, le=15)
     staff_mfa_max_attempts: int = Field(default=5, ge=1, le=10)
+    # Administrator sessions are shorter than other staff sessions (SEC-01).
+    staff_admin_access_minutes: int = Field(default=10, ge=1, le=30)
+    staff_admin_idle_minutes: int = Field(default=15, ge=5, le=60)
+    staff_admin_absolute_hours: int = Field(default=4, ge=1, le=12)
+    # ADM-03: one-time staff activation links expire after this many hours.
+    staff_invitation_hours: int = Field(default=48, ge=1, le=168)
     # AUD-01..AUD-04 query/export bounds. They are request limits, not retention policy.
     audit_max_query_days: int = Field(default=90, ge=1, le=366)
     audit_max_report_events: int = Field(default=2_000, ge=1, le=10_000)
@@ -82,6 +88,10 @@ class Settings(BaseSettings):
             raise ValueError("A non-disposable session limiter secret is required in production")
         if self.renewable_idle_lifetime_days > self.session_absolute_lifetime_days:
             raise ValueError("Renewable idle lifetime cannot exceed absolute session lifetime")
+        if self.staff_admin_access_minutes > self.staff_admin_idle_minutes:
+            raise ValueError("Administrator access lifetime cannot exceed its idle lifetime")
+        if self.staff_admin_idle_minutes > self.staff_admin_absolute_hours * 60:
+            raise ValueError("Administrator idle lifetime cannot exceed its absolute lifetime")
         if self.staff_mfa_encryption_key is not None and not _is_aes256_key(
             self.staff_mfa_encryption_key.get_secret_value()
         ):

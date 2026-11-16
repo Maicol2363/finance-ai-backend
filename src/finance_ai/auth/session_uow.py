@@ -1,12 +1,17 @@
 from types import TracebackType
 from typing import Protocol, Self
 
-from finance_ai.auth.session_repositories import SessionRepository, SessionUserRepository
+from finance_ai.auth.session_repositories import (
+    SecurityEventRepository,
+    SessionRepository,
+    SessionUserRepository,
+)
 
 
 class SessionUnitOfWork(Protocol):
     users: SessionUserRepository
     sessions: SessionRepository
+    security_events: SecurityEventRepository
 
     def __enter__(self) -> Self: ...
 

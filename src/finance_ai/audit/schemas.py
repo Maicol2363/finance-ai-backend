@@ -14,6 +14,7 @@ from finance_ai.audit.policy import (
     DEFAULT_TIME_ZONE,
     EVENT_TYPE_PATTERN,
     TARGET_ID_PATTERN,
+    AuditActorRole,
     AuditOutcome,
     AuditTargetType,
     TimeZoneName,
@@ -37,6 +38,7 @@ class AuditFiltersView(_View):
     event_type: str | None = None
     outcome: str | None = None
     actor_id: str | None = None
+    actor_role: str | None = None
     target_type: str | None = None
     target_id: str | None = None
     correlation_id: str | None = None
@@ -48,6 +50,9 @@ class AuditEventView(_View):
     event_type: str
     outcome: str
     actor_id: str | None = Field(description="Historical actor identifier; null when unknown.")
+    actor_role: str | None = Field(
+        description="Role the actor held when the event was recorded; null when not recorded."
+    )
     target_type: str | None
     target_id: str | None
     correlation_id: str | None
@@ -133,6 +138,7 @@ class AuditCatalogView(_View):
     event_types: list[str]
     outcomes: list[str]
     target_types: list[str]
+    actor_roles: list[str]
     time_zones: list[AuditTimeZoneView]
     default_time_zone: str
     max_query_days: int
@@ -148,6 +154,7 @@ class AuditReportRequest(_View):
     event_type: str | None = Field(default=None, max_length=100, pattern=EVENT_TYPE_PATTERN)
     outcome: AuditOutcome | None = None
     actor_id: str | None = Field(default=None, pattern=ACTOR_ID_PATTERN)
+    actor_role: AuditActorRole | None = None
     target_type: AuditTargetType | None = None
     target_id: str | None = Field(default=None, pattern=TARGET_ID_PATTERN)
     correlation_id: str | None = Field(default=None, pattern=CORRELATION_ID_PATTERN)

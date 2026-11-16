@@ -1,6 +1,12 @@
 from finance_ai.capture.models import TextCaptureProposalModel
 from finance_ai.db.models.accounts import Account
-from finance_ai.db.models.admin import AdminTotpFactor, StaffInvitation, StaffMfaChallenge
+from finance_ai.db.models.admin import (
+    AccountSuspension,
+    AdminTotpFactor,
+    StaffInvitation,
+    StaffMfaChallenge,
+    StaffMfaRecoveryCode,
+)
 from finance_ai.db.models.audit import SecurityAuditEvent
 from finance_ai.db.models.budgets import Budget, SpendingLimit
 from finance_ai.db.models.catalogs import (
@@ -23,6 +29,7 @@ from finance_ai.receipts.models import ReceiptProposalModel
 __all__ = [
     "Account",
     "AccountMovement",
+    "AccountSuspension",
     "AdminTotpFactor",
     "AppUser",
     "Budget",
@@ -42,6 +49,7 @@ __all__ = [
     "SpendingLimit",
     "StaffInvitation",
     "StaffMfaChallenge",
+    "StaffMfaRecoveryCode",
     "Store",
     "Subcategory",
     "SupportTicket",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+from datetime import timedelta
 from functools import lru_cache
 from os import getenv
 from typing import Annotated, Literal
@@ -12,7 +13,11 @@ from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 
 from finance_ai.audit.service import AccessDenialRecorder, SecurityAuditWriter
-from finance_ai.auth.dependencies import get_credential_codec, get_password_hasher
+from finance_ai.auth.dependencies import (
+    get_credential_codec,
+    get_password_hasher,
+    get_unsafe_password_provider,
+)
 from finance_ai.auth.session_policy import SystemClock
 from finance_ai.core.config import Settings, get_settings
 from finance_ai.core.errors import (
@@ -21,17 +26,47 @@ from finance_ai.core.errors import (
     StaffOriginDeniedError,
     StaffRequestDeniedError,
 )
-from finance_ai.core.roles import SECURITY_AUDITOR_ROLE, SUPPORT_AGENT_ROLE
+from finance_ai.core.roles import ADMIN_ROLE, SECURITY_AUDITOR_ROLE, SUPPORT_AGENT_ROLE
 from finance_ai.db.session import get_session_factory
+from finance_ai.staff_auth.activation import StaffActivationService
 from finance_ai.staff_auth.mfa import StaffMfaPolicy
+from finance_ai.staff_auth.recovery import StaffRecoveryService
 from finance_ai.staff_auth.schemas import StaffSessionUser
-from finance_ai.staff_auth.service import StaffSessionService
+from finance_ai.staff_auth.service import StaffLifetimes, StaffSessionService
 
 StaffCookieSettings = tuple[bool, Literal["strict"], bool]
 
 
 def get_staff_session_service() -> StaffSessionService:
+    settings = get_settings()
     return StaffSessionService(
+        session_factory=get_session_factory(),
+        password_hasher=get_password_hasher(),
+        credential_codec=get_credential_codec(),
+        clock=SystemClock(),
+        audit_writer=SecurityAuditWriter(),
+        mfa=_staff_mfa_policy(),
+        admin_lifetimes=StaffLifetimes(
+            access=timedelta(minutes=settings.staff_admin_access_minutes),
+            idle=timedelta(minutes=settings.staff_admin_idle_minutes),
+            absolute=timedelta(hours=settings.staff_admin_absolute_hours),
+        ),
+    )
+
+
+def get_staff_activation_service() -> StaffActivationService:
+    return StaffActivationService(
+        session_factory=get_session_factory(),
+        password_hasher=get_password_hasher(),
+        unsafe_passwords=get_unsafe_password_provider(),
+        credential_codec=get_credential_codec(),
+        clock=SystemClock(),
+        audit_writer=SecurityAuditWriter(),
+    )
+
+
+def get_staff_recovery_service() -> StaffRecoveryService:
+    return StaffRecoveryService(
         session_factory=get_session_factory(),
         password_hasher=get_password_hasher(),
         credential_codec=get_credential_codec(),
@@ -58,6 +93,20 @@ def enforce_staff_mfa_limit(request: Request) -> None:
     """Bound second-factor attempts per client in addition to the per-challenge limit."""
     peer = request.client.host if request.client else "unknown"
     if not _mfa_limiter().hit(parse("10/minute"), "staff-mfa", peer):
+        raise MfaRateLimitedError(60)
+
+
+def enforce_staff_activation_limit(request: Request) -> None:
+    """Own bucket: a client hammering activation must not lock others out of MFA."""
+    peer = request.client.host if request.client else "unknown"
+    if not _mfa_limiter().hit(parse("10/minute"), "staff-activate", peer):
+        raise MfaRateLimitedError(60)
+
+
+def enforce_staff_recovery_limit(request: Request) -> None:
+    """Own bucket for authenticator recovery attempts (password + proof)."""
+    peer = request.client.host if request.client else "unknown"
+    if not _mfa_limiter().hit(parse("10/minute"), "staff-recover", peer):
         raise MfaRateLimitedError(60)
 
 
@@ -137,6 +186,19 @@ def get_security_auditor_user(
     return _require_role(
         request, user, recorder, role=SECURITY_AUDITOR_ROLE, resource="security_audit"
     )
+
+
+def get_admin_user(
+    request: Request,
+    user: Annotated[StaffSessionUser, Depends(get_staff_access_user)],
+    recorder: Annotated[AccessDenialRecorder, Depends(get_access_denial_recorder)],
+) -> StaffSessionUser:
+    """Active admin whose session completed password+TOTP with an active authenticator.
+
+    ``get_staff_access_user`` re-evaluates the current role, active status, MFA assurance
+    and authenticator on every request, so a stale or pre-promotion session never works.
+    """
+    return _require_role(request, user, recorder, role=ADMIN_ROLE, resource="administration")
 
 
 def staff_cookie_names() -> tuple[str, str]:

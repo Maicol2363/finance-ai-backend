@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from reportlab import rl_config
@@ -207,7 +208,13 @@ def test_statistics_and_observations_are_deterministic() -> None:
 def test_pdf_layout_contains_metadata_sections_and_every_row_across_pages(
     audit_factory: sessionmaker[Session], uncompressed_pdf: None
 ) -> None:
-    seed(audit_factory, 120)
+    seed(audit_factory, 119)
+    wide_event_id = UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
+    add_event(
+        audit_factory,
+        occurred_at=datetime(2026, 10, 3, 14, tzinfo=UTC),
+        event_id=wide_event_id,
+    )
     captured: list[ReportSnapshot] = []
 
     def capture(snapshot: ReportSnapshot) -> bytes:

@@ -1,11 +1,15 @@
 # ──────────────────────────────────────────────
 # Finance AI Backend — CD: Deploy to Google Cloud Run
 # ──────────────────────────────────────────────
-# Releases a verified main commit to finance-api after manual dispatch.
+# Releases successful Backend CI pushes to main, or a verified manual dispatch.
 # ──────────────────────────────────────────────
 name: Deploy to Google Cloud Run
 
 on:
+  workflow_run:
+    workflows: ["Backend CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       release_sha:
@@ -25,17 +29,22 @@ env:
   PROJECT_ID: finance-ai-api
   REGION: southamerica-east1
   SERVICE_NAME: finance-api
-  SOURCE_SHA: ${{ github.sha }}
+  SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   deploy:
     name: Deploy to Cloud Run
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.id == github.event.repository.id))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     concurrency: deploy-group
     env:
-      MFA_SECRET_VERSION: ${{ inputs.mfa_secret_version }}
+      MANUAL_MFA_SECRET_VERSION: ${{ inputs.mfa_secret_version }}
 
     steps:
       - name: Checkout repository
@@ -45,11 +54,12 @@ jobs:
           persist-credentials: false
 
       - name: Verify successful Backend CI for manual dispatch SHA
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           APPROVED_SHA: ${{ inputs.release_sha }}
         run: |
-          if [[ "$APPROVED_SHA" != "$SOURCE_SHA" || ! "$MFA_SECRET_VERSION" =~ ^[1-9][0-9]*$ ]]; then
+          if [[ "$APPROVED_SHA" != "$SOURCE_SHA" || ! "$MANUAL_MFA_SECRET_VERSION" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::Supply the approved main SHA and a numeric MFA secret version."
             exit 1
           fi
@@ -103,6 +113,18 @@ jobs:
           service=$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format=json)
           api_url=$(jq -er '.status.url' <<< "$service")
           [[ "$api_url" =~ ^https://[a-z0-9.-]+\.run\.app$ ]]
+          # Automatic releases keep the live MFA key version so existing factors still decrypt.
+          version="$MANUAL_MFA_SECRET_VERSION"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            version=$(jq -er '
+              .spec.template.spec.containers[0].env[]
+              | select(.name == "FINANCE_AI_STAFF_MFA_ENCRYPTION_KEY")
+              | .valueFrom.secretKeyRef
+              | select(.name == "finance-ai-staff-mfa-encryption-key")
+              | .key
+            ' <<< "$service")
+          fi
+          [[ "$version" =~ ^[1-9][0-9]*$ ]]
           origins=$(jq -ce --arg origin "$origin" '
             [.spec.template.spec.containers[0].env[]? | select(.name == "FINANCE_AI_CORS_ALLOWED_ORIGINS")] as $matches
             | if ($matches | length) == 0 then []
@@ -117,6 +139,7 @@ jobs:
           echo "STAFF_ORIGIN=$origin" >> "$GITHUB_ENV"
           echo "STAFF_CLOUD_RUN_HOST=${api_url#https://}" >> "$GITHUB_ENV"
           echo "CORS_ALLOWED_ORIGINS=$origins" >> "$GITHUB_ENV"
+          echo "MFA_SECRET_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Configure Docker authentication
         run: |
