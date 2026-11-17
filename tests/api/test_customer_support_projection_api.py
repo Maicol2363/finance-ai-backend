@@ -90,7 +90,8 @@ def test_customer_conversation_is_projected_to_customer_fields_only(
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"ticket", "messages"}
+    assert set(body) == {"ticket", "messages", "attachments"}
+    assert body["attachments"] == []
     assert body["ticket"]["resolution_summary"] == "Fixed for you."
     assert SECRET_REASON not in response.text
     for staff_only in ("history", "internal_reason", "customer", "email"):

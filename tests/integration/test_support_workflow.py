@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,10 +14,12 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text, update
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 
 from finance_ai.audit.service import SecurityAuditWriter
 from finance_ai.auth.dependencies import get_password_hasher
 from finance_ai.core.errors import (
+    AppError,
     StaffAccessDeniedError,
     SupportTicketNotFoundError,
     SupportTicketStateConflictError,
@@ -30,7 +33,7 @@ from finance_ai.db.seeds import seed_shared_data
 from finance_ai.db.session import clear_session_caches, get_session_factory
 from finance_ai.main import create_app
 from finance_ai.staff_auth.schemas import StaffSessionUser
-from finance_ai.support.schemas import AgentTicketCreate, TicketCreate
+from finance_ai.support.schemas import AgentTicketCreate, AttachmentInput, TicketCreate
 from finance_ai.support.service import SupportTicketService
 from finance_ai.support.workflow import TicketWorkflow
 
@@ -152,7 +155,7 @@ def test_customer_agent_exchange_and_customer_visible_resolution(people):
     customer_view = workflow.read(customer[0], ticket_id, staff=False).model_dump(mode="json")
     assert customer_view["ticket"]["resolution_summary"] == "Solución comunicada"
     assert customer_view["ticket"]["status"] == "resolved"
-    assert set(customer_view) == {"ticket", "messages"}
+    assert set(customer_view) == {"ticket", "messages", "attachments"}
     for actor, staff in ((customer[0], False), (agent[0], True)):
         with pytest.raises(SupportTicketStateConflictError):
             workflow.message(actor, ticket_id, "late", "late", staff=staff)
@@ -167,6 +170,34 @@ def test_customer_agent_exchange_and_customer_visible_resolution(people):
         assert len(events) == 5
         assert all(e.context == {} for e in events)
         assert "Respuesta" not in str([e.context for e in events])
+
+
+def test_new_message_moves_the_ticket_to_the_front_of_the_queue(people):
+    customer, _, agent, _, _ = people
+    workflow, older = make_ticket(people)
+    _, newer = make_ticket(people)
+    service = SupportTicketService(get_session_factory(), SecurityAuditWriter())
+    user = StaffSessionUser(id=agent[0], email=agent[1], role="support_agent")
+
+    def relative_order():
+        return [item.id for item in service.list_queue(user, None) if item.id in {older, newer}]
+
+    assert relative_order() == [newer, older]
+    workflow.message(customer[0], older, "Información adicional", "bump-ticket", staff=False)
+    assert relative_order() == [older, newer]
+
+
+def test_database_rejects_resolving_a_ticket_without_a_summary(people):
+    _, ticket_id = make_ticket(people)
+
+    for summary in (None, " \t\n"):
+        with pytest.raises(IntegrityError) as error, get_session_factory().begin() as session:
+            session.execute(
+                update(SupportTicket)
+                .where(SupportTicket.id == ticket_id)
+                .values(status="resolved", resolution_summary=summary)
+            )
+        assert error.value.orig.diag.constraint_name == "support_ticket_resolution_required"
 
 
 def test_escalation_read_only_internal_reason_and_origin_preserved(people):
@@ -444,3 +475,43 @@ def test_concurrent_message_and_resolution_preserve_terminal_boundary(people):
     assert view.history[-1].event_type == "ticket_resolved"
     with pytest.raises(SupportTicketStateConflictError):
         workflow.message(customer[0], ticket_id, "After resolution", "late", staff=False)
+
+
+def test_attachment_access_and_write_atomicity(people):
+    customer, other_customer, agent, other_agent, _ = people
+    workflow = TicketWorkflow(get_session_factory())
+    content = b64encode(b"%PDF-1.7\nfictional QA fixture").decode()
+    file = AttachmentInput(name="evidence.pdf", content=content)
+    ticket = workflow.create(
+        customer[0],
+        TicketCreate(subject="Evidence", category="general", description="QA", attachment=file),
+        "qa-attach",
+        staff=False,
+    )
+    (attachment,) = workflow.read(customer[0], ticket.id, staff=False).attachments
+    assert attachment.message_id is None
+    assert workflow.download(customer[0], ticket.id, attachment.id, staff=False).content == content
+    for actor, staff in [(other_customer[0], False), (agent[0], True), (other_agent[0], True)]:
+        with pytest.raises(SupportTicketNotFoundError):
+            workflow.download(actor, ticket.id, attachment.id, staff=staff)
+
+    service = SupportTicketService(get_session_factory(), SecurityAuditWriter())
+    service.claim(
+        StaffSessionUser(id=agent[0], email=agent[1], role="support_agent"), ticket.id, "qa-claim"
+    )
+    assert workflow.download(agent[0], ticket.id, attachment.id, staff=True).content == content
+    with pytest.raises(AppError, match="support_attachment_invalid"):
+        workflow.message(
+            agent[0],
+            ticket.id,
+            "Invalid file",
+            "qa-invalid",
+            staff=True,
+            attachment=AttachmentInput(name="wrong.png", content=content),
+        )
+    assert not workflow.read(customer[0], ticket.id, staff=False).messages
+    workflow.message(agent[0], ticket.id, "Reply", "qa-reply", staff=True, attachment=file)
+    conversation = workflow.read(customer[0], ticket.id, staff=False)
+    assert conversation.attachments[1].message_id == conversation.messages[0].id
+    with pytest.raises(SupportTicketNotFoundError):
+        workflow.download(other_agent[0], ticket.id, attachment.id, staff=True)

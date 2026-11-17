@@ -51,11 +51,29 @@ class SupportInput(BaseModel):
         return value
 
 
+class AttachmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=160)]
+    content: Annotated[str, StringConstraints(min_length=1, max_length=2796204)]
+
+
+class AttachmentSummary(BaseModel):
+    id: int
+    message_id: int | None
+    name: str
+    size: int
+
+
+class AttachmentDownload(BaseModel):
+    content: str
+
+
 class TicketCreate(SupportInput):
     model_config = ConfigDict(extra="forbid")
     subject: ShortText
     category: Category
     description: LongText
+    attachment: AttachmentInput | None = None
 
 
 class CustomerLookup(SupportInput):
@@ -74,6 +92,7 @@ class AgentTicketCreate(TicketCreate):
 class MessageCreate(SupportInput):
     model_config = ConfigDict(extra="forbid")
     body: LongText
+    attachment: AttachmentInput | None = None
 
 
 class TransitionRequest(SupportInput):
@@ -115,6 +134,7 @@ class CustomerTicket(TicketDetail):
 class CustomerConversation(BaseModel):
     ticket: CustomerTicket
     messages: list[TicketMessage]
+    attachments: list[AttachmentSummary] = []
 
 
 class StaffConversation(CustomerConversation):

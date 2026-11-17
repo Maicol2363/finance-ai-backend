@@ -26,7 +26,7 @@ from finance_ai.audit.policy import (
     normalize_period,
 )
 from finance_ai.audit.query_service import AuditQueryService
-from finance_ai.audit.report_service import AuditReportService
+from finance_ai.audit.report_service import AuditReportService, ProcedureExportRecorder
 from finance_ai.audit.service import SecurityAuditWriter
 from finance_ai.auth.session_policy import SystemClock
 from finance_ai.core.config import get_settings
@@ -47,11 +47,14 @@ def get_audit_query_service() -> AuditQueryService:
 
 
 def get_audit_report_service() -> AuditReportService:
+    factory = get_session_factory()
     return AuditReportService(
-        get_session_factory(),
+        factory,
         SecurityAuditWriter(),
         SystemClock(),
         max_events=get_settings().audit_max_report_events,
+        # AUD-04: authority recheck and export evidence in one stored-procedure transaction.
+        export_recorder=ProcedureExportRecorder(factory),
     )
 
 

@@ -6,6 +6,7 @@ from finance_ai.support.customer_router import correlation
 from finance_ai.support.dependencies import SupportAgent, SupportService, Workflow
 from finance_ai.support.schemas import (
     AgentTicketCreate,
+    AttachmentDownload,
     CustomerLookup,
     CustomerMetadata,
     CustomerTicket,
@@ -81,7 +82,9 @@ def send_message(
     agent: SupportAgent,
     workflow: Workflow,
 ) -> Response:
-    workflow.message(agent.id, ticket_id, data.body, correlation(request), staff=True)
+    workflow.message(
+        agent.id, ticket_id, data.body, correlation(request), staff=True, attachment=data.attachment
+    )
     return Response(status_code=204)
 
 
@@ -107,3 +110,16 @@ def resolve_ticket(
 ) -> Response:
     workflow.transition(agent.id, ticket_id, data.summary, correlation(request), escalate=False)
     return Response(status_code=204)
+
+
+@router.get("/{ticket_id}/attachments/{attachment_id}", response_model=AttachmentDownload)
+def download_attachment(
+    ticket_id: TicketId,
+    attachment_id: TicketId,
+    agent: SupportAgent,
+    workflow: Workflow,
+    response: Response,
+) -> AttachmentDownload:
+    value = workflow.download(agent.id, ticket_id, attachment_id, staff=True)
+    response.headers["Cache-Control"] = "no-store"
+    return value

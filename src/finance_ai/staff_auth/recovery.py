@@ -57,6 +57,15 @@ def hash_recovery_code(code: str) -> str | None:
     return hashlib.sha256(normalized.encode("ascii")).hexdigest()
 
 
+def issued_code_hashes(codes: list[str]) -> list[str]:
+    """Hashes of freshly generated codes; one that cannot be hashed is a generator defect."""
+    hashes = [hash_recovery_code(code) for code in codes]
+    stored = [code_hash for code_hash in hashes if code_hash is not None]
+    if len(stored) != len(codes):
+        raise RuntimeError("Generated recovery codes must match the recovery code format")
+    return stored
+
+
 def invalidate_authenticator(
     session: Session, user_id: int, now: datetime, *, session_reason: str
 ) -> int:
@@ -113,7 +122,7 @@ class StaffRecoveryService:
         """Replace the account's recovery codes after re-confirming the password."""
         now = self._clock.now()
         codes = new_recovery_codes()
-        hashes = [hash_recovery_code(code) for code in codes]
+        hashes = issued_code_hashes(codes)
         try:
             with self._session_factory() as session, session.begin():
                 # Eager joins on AppUser cannot be locked; lock only the account row.
@@ -134,7 +143,6 @@ class StaffRecoveryService:
                     .values(consumed_at=now)
                 )
                 for code_hash in hashes:
-                    assert code_hash is not None
                     session.add(
                         StaffMfaRecoveryCode(user_id=user_id, code_hash=code_hash, created_at=now)
                     )

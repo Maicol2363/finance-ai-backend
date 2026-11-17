@@ -6,6 +6,7 @@ from finance_ai.accounts.dependencies import get_authenticated_principal
 from finance_ai.auth.session_schemas import PublicAuthenticatedUser
 from finance_ai.support.dependencies import Workflow
 from finance_ai.support.schemas import (
+    AttachmentDownload,
     CustomerConversation,
     CustomerTicket,
     CustomerTicketList,
@@ -49,5 +50,25 @@ def send_message(
     customer: Customer,
     workflow: Workflow,
 ) -> Response:
-    workflow.message(customer.user_id, ticket_id, data.body, correlation(request), staff=False)
+    workflow.message(
+        customer.user_id,
+        ticket_id,
+        data.body,
+        correlation(request),
+        staff=False,
+        attachment=data.attachment,
+    )
     return Response(status_code=204)
+
+
+@router.get("/{ticket_id}/attachments/{attachment_id}", response_model=AttachmentDownload)
+def download_attachment(
+    ticket_id: TicketId,
+    attachment_id: TicketId,
+    customer: Customer,
+    workflow: Workflow,
+    response: Response,
+) -> AttachmentDownload:
+    value = workflow.download(customer.user_id, ticket_id, attachment_id, staff=False)
+    response.headers["Cache-Control"] = "no-store"
+    return value
