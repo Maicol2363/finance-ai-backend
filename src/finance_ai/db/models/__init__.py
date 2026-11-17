@@ -19,6 +19,11 @@ from finance_ai.db.models.catalogs import (
 )
 from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.income import Income
+from finance_ai.db.models.notifications import (
+    EmailVerification,
+    NotificationOutbox,
+    NotificationPreference,
+)
 from finance_ai.db.models.receipts import Expense, Receipt
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
@@ -40,11 +45,14 @@ __all__ = [
     "Budget",
     "Category",
     "Currency",
+    "EmailVerification",
     "Expense",
     "FinancialTransaction",
     "Income",
     "IncomeSource",
     "Incomesource",
+    "NotificationOutbox",
+    "NotificationPreference",
     "PaymentMethod",
     "Receipt",
     "ReceiptProposalModel",

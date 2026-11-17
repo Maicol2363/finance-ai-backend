@@ -206,6 +206,9 @@ class FakeUnitOfWork:
     def flush(self) -> None:
         self.flushed = True
 
+    def evaluate_budget_alerts(self, *, owner_id: int) -> None:
+        self.alert_checks = getattr(self, "alert_checks", 0) + 1
+
     def commit(self) -> None:
         self.committed = True
 

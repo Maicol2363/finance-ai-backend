@@ -69,6 +69,45 @@ class Settings(BaseSettings):
     # AUD-01..AUD-04 query/export bounds. They are request limits, not retention policy.
     audit_max_query_days: int = Field(default=90, ge=1, le=366)
     audit_max_report_events: int = Field(default=2_000, ge=1, le=10_000)
+    # EML-01 email notifications. The console sender only writes previews to disk and never
+    # delivers; production uses "smtp". Nothing here is required to start the API: without a
+    # real sender configured, notification features report that they are unavailable.
+    email_provider: Literal["console", "smtp"] = "console"
+    email_from_address: str | None = None
+    email_from_name: str = Field(default="Finance AI", min_length=1, max_length=80)
+    email_reply_to: str | None = None
+    email_console_directory: Path = Path("var/email-preview")
+    email_smtp_host: str | None = None
+    email_smtp_port: int = Field(default=587, ge=1, le=65_535)
+    email_smtp_username: str | None = None
+    email_smtp_password: SecretStr | None = None
+    email_smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    email_smtp_timeout_seconds: float = Field(default=10.0, ge=1, le=60)
+    # Public origin of this API, used only to build unsubscribe links inside emails.
+    public_base_url: str | None = None
+    # Shared secret for the scheduled dispatch endpoint. Empty keeps that endpoint disabled.
+    notification_dispatch_token: SecretStr | None = None
+    email_daily_cap_per_user: int = Field(default=10, ge=1, le=100)
+    email_max_attempts: int = Field(default=5, ge=1, le=10)
+    email_verification_minutes: int = Field(default=15, ge=5, le=60)
+    email_verification_max_attempts: int = Field(default=5, ge=1, le=10)
+
+    @field_validator(
+        "email_from_address",
+        "email_reply_to",
+        "email_smtp_host",
+        "email_smtp_username",
+        "email_smtp_password",
+        "public_base_url",
+        "notification_dispatch_token",
+        mode="before",
+    )
+    @classmethod
+    def blank_email_settings_mean_unconfigured(cls, value: object) -> object:
+        # Compose and Cloud Run pass unset variables as empty strings.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("staff_mfa_encryption_key", mode="before")
     @classmethod
@@ -96,13 +135,46 @@ class Settings(BaseSettings):
             self.staff_mfa_encryption_key.get_secret_value()
         ):
             raise ValueError("The staff MFA encryption key must be 32 base64url-encoded bytes")
+        self._validate_email_settings()
         return self
+
+    def _validate_email_settings(self) -> None:
+        for name in ("email_from_address", "email_reply_to"):
+            address = getattr(self, name)
+            if address is not None and not _is_plain_email_address(address):
+                raise ValueError(f"{name} must be a single plain email address")
+        if self.email_provider == "smtp":
+            if self.email_smtp_host is None or self.email_from_address is None:
+                raise ValueError("The SMTP email provider needs a host and a sender address")
+            if (self.email_smtp_username is None) != (self.email_smtp_password is None):
+                raise ValueError("SMTP username and password must be set together")
+            if self.environment == "production" and self.email_smtp_security == "none":
+                raise ValueError("Unencrypted SMTP cannot be used in production")
+        if self.public_base_url is not None:
+            allowed = self.environment != "production" and self.public_base_url.startswith(
+                "http://"
+            )
+            if not (self.public_base_url.startswith("https://") or allowed):
+                raise ValueError("The public base URL must use https outside local development")
+            if self.public_base_url.endswith("/"):
+                raise ValueError("The public base URL must not end with a slash")
+        token = self.notification_dispatch_token
+        if token is not None and len(token.get_secret_value()) < 32:
+            raise ValueError("The notification dispatch token must have at least 32 characters")
 
     @property
     def resolved_unsafe_passwords_path(self) -> Path:
         if self.unsafe_passwords_path is not None:
             return self.unsafe_passwords_path
         return Path(__file__).resolve().parents[1] / "resources" / "common-passwords.txt"
+
+
+def _is_plain_email_address(value: str) -> bool:
+    """A bare address: no display name, no whitespace, no header-injection characters."""
+    if any(character in value for character in "\r\n\t <>,;\"'"):
+        return False
+    local, separator, domain = value.partition("@")
+    return bool(local) and separator == "@" and "." in domain and not domain.startswith(".")
 
 
 def _is_aes256_key(encoded: str) -> bool:

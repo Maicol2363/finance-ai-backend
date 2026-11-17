@@ -1,0 +1,11 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<p class="tx" style="margin:0 0 6px 0;font-size:20px;font-weight:600;color:#202b28;">Confirma tu correo</p>
+<p style="margin:0 0 16px 0;">Escribe este código en Finance AI para activar los avisos por correo:</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px 0;">
+<tr>
+<td align="center" style="background-color:#e7f2ed;border-radius:10px;padding:16px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:32px;font-weight:700;letter-spacing:8px;color:#194e3d;">{{ code_display }}</td>
+</tr>
+</table>
+<p class="tx-muted" style="margin:0 0 8px 0;font-size:13px;color:#5c6a66;">El código vence en {{ minutes }} minutos y solo sirve una vez. Si no lo pediste tú, ignora este mensaje: no se activará nada.</p>
+{% endblock %}

@@ -1,0 +1,17 @@
+{{ headline }}
+
+{{ budget_name }}
+{{ period_label }}
+
+Has usado el {{ percent_text }} de tu presupuesto.
+{% if show_amounts %}
+Gastado: {{ spent_text }}
+Límite: {{ limit_text }}
+{{ remaining_label }}: {{ remaining_text }}
+{% endif %}
+Abre Finance AI y entra a Presupuestos para ver el detalle.
+
+--
+{{ footer_reason }}
+{% if unsubscribe_url %}Cancelar suscripción: {{ unsubscribe_url }}
+{% endif %}

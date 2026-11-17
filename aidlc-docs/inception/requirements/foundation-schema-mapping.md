@@ -33,6 +33,17 @@ The audit event actor and target are historical identifiers rather than cascadin
 
 Executable definitions and rationale: the migration file and `NullCorvus/finance-ai/aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md`.
 
+## Email notifications extension (migration 0025)
+
+| Requirement | Persistence | Notes |
+|---|---|---|
+| Verified email address | `app_user.email_verified_at` (nullable) | Null means "not proven yet"; no existing account is marked verified |
+| Opt-in and choices | `notification_preference` (one row per account: `email_enabled` default false, `budget_alerts` default true, `show_amounts` default true) | Created on first use; deleted with the account |
+| Verification codes | `email_verification` (`code_hash` keyed hash, `expires_at`, `attempts`, `consumed_at`) | Partial unique index allows one open code per account; the code itself is never stored or queued |
+| Decided notifications | `notification_outbox` (`kind` in `budget_alert`/`test`, unique `dedupe_key`, `status`, `attempts`, `next_attempt_at`, `claimed_at`, `sent_at`, `provider_message_id`, `last_error_code`) | Written in the same transaction as the event; the unique key makes each decision idempotent; failures are stable codes, never provider text or addresses; CHECKs tie `status = 'sent'` to `sent_at` |
+
+All three tables cascade on account deletion. Behaviour and rationale: `aidlc-docs/inception/plans/email-notifications-plan.md` in the documentation repository.
+
 ## Unresolved decisions kept for later
 
 - Final Auditor query scope, date/time-zone presentation, actor/target lookup behavior, and report content/limits must follow the finalized AUD stories.

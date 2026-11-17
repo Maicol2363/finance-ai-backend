@@ -30,6 +30,24 @@ from finance_ai.core.errors import (
     ServiceUnavailableError,
 )
 
+
+def spent_in_period(
+    record: BudgetRecord, period: PeriodRange, spending: Sequence[DailySpendingRecord]
+) -> Decimal:
+    """What a budget has used in one period. The budgets screen and the budget-alert emails both
+    use this, so the number in an email is always the number the person sees in the app."""
+    return sum(
+        (
+            item.amount
+            for item in spending
+            if item.currency_id == record.currency.id
+            and period.starts_on <= item.spent_on <= period.ends_on
+            and (record.category is None or item.category_id == record.category.id)
+        ),
+        Decimal("0"),
+    )
+
+
 BudgetUnitOfWorkFactory = Callable[[], BudgetUnitOfWork]
 TodayFactory = Callable[[], date]
 
@@ -241,16 +259,7 @@ class BudgetService:
         period: PeriodRange,
         spending: Sequence[DailySpendingRecord],
     ) -> BudgetView:
-        spent = sum(
-            (
-                item.amount
-                for item in spending
-                if item.currency_id == record.currency.id
-                and period.starts_on <= item.spent_on <= period.ends_on
-                and (record.category is None or item.category_id == record.category.id)
-            ),
-            Decimal("0"),
-        )
+        spent = spent_in_period(record, period, spending)
         return BudgetView(
             id=record.id,
             name=record.name,

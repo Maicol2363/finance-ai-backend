@@ -36,8 +36,16 @@ _STAFF_AUTH_PATHS = {
     "/api/v1/staff/auth/mfa/recovery-codes",
     "/api/v1/staff/auth/activate",
 }
+_ME_JSON_BODY = {
+    ("PATCH", "/api/v1/me/notification-preferences"),
+    ("POST", "/api/v1/me/email/verify"),
+}
 _STAFF_AUDIT_PREFIX = "/api/v1/staff/audit/"
 _STAFF_ADMIN_PREFIX = "/api/v1/staff/admin/"
+
+
+def _is_me_path(path: str) -> bool:
+    return path.startswith("/api/v1/me/")
 
 
 def _is_staff_audit_path(path: str) -> bool:
@@ -185,6 +193,7 @@ class RequestGuardMiddleware:
             or (method == "POST" and _is_capture_path(path))
             or (method == "POST" and _is_staff_audit_path(path))
             or (method in {"POST", "PATCH"} and _is_staff_admin_path(path))
+            or (method, path) in _ME_JSON_BODY
         )
         is_support_write = method == "POST" and (
             path == "/api/v1/support/tickets"
@@ -294,6 +303,7 @@ class RequestGuardMiddleware:
                     or _is_capture_path(path)
                     or _is_staff_audit_path(path)
                     or _is_staff_admin_path(path)
+                    or _is_me_path(path)
                 ):
                     response_headers.append((b"cache-control", b"no-store"))
                     response_headers.append((b"pragma", b"no-cache"))
