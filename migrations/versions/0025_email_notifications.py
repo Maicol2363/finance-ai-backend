@@ -1,7 +1,7 @@
 """Email notifications: verified addresses, preferences, verification codes and the outbox.
 
-Revision ID: 0021_email_notifications
-Revises: 0020_admin_account_management
+Revision ID: 0025_email_notifications
+Revises: 0024_support_attachments
 Create Date: 2026-11-16 00:00:00.000000
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0021_email_notifications"
-down_revision: str | Sequence[str] | None = "0020_admin_account_management"
+revision: str = "0025_email_notifications"
+down_revision: str | Sequence[str] | None = "0024_support_attachments"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

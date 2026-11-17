@@ -33,7 +33,7 @@ The audit event actor and target are historical identifiers rather than cascadin
 
 Executable definitions and rationale: the migration file and `NullCorvus/finance-ai/aidlc-docs/construction/administrator/code/DB-ROUTINES-ADMIN.md`.
 
-## Email notifications extension (migration 0021)
+## Email notifications extension (migration 0025)
 
 | Requirement | Persistence | Notes |
 |---|---|---|

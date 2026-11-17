@@ -56,7 +56,7 @@ Open the `.html` files in `var/email-preview/` in a browser. To try a real SMTP 
 2. **DNS records for the sending domain** (values come from the provider): SPF (`TXT`), DKIM (`CNAME` or `TXT`, one or more selectors) and DMARC (`TXT` at `_dmarc`, start with `p=none` and a report address, move to `quarantine` once reports are clean). Verify with the provider's checker and by sending a test email to a mailbox that shows authentication results.
 3. **Secret Manager** entries, mounted as environment variables on Cloud Run: `FINANCE_AI_EMAIL_SMTP_PASSWORD`, `FINANCE_AI_NOTIFICATION_DISPATCH_TOKEN`, and the existing `FINANCE_AI_SESSION_LIMITER_SECRET`. Plain values (`EMAIL_FROM_ADDRESS`, `EMAIL_SMTP_HOST`, `PUBLIC_BASE_URL`, ...) can be ordinary environment variables.
 4. **Cloud Scheduler job**: `POST https://<api>/internal/notifications/dispatch`, every minute, header `X-Dispatch-Token: <the token>`, a short timeout (30 s), no retries of its own (the outbox retries). A 200 response body reports `sent`, `skipped`, `retried`, `failed`.
-5. **Migration 0021** applied before the new revision receives traffic (the container applies migrations on startup).
+5. **Migration 0025** applied before the new revision receives traffic (the container applies migrations on startup).
 6. **Smoke test**: verify an address from the app, tap the test email button, trigger one budget alert with a small limit, confirm the unsubscribe link switches email off.
 
 ## Secrets and rotation
