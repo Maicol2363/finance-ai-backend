@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Index,
+    LargeBinary,
     String,
     Text,
     func,
@@ -169,3 +170,18 @@ Index(
     postgresql_where=text("status = 'escalated'"),
     sqlite_where=text("status = 'escalated'"),
 )
+
+
+class SupportAttachment(Base):
+    __tablename__ = "support_attachment"
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(), primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey("support_ticket.id", ondelete="CASCADE"), index=True
+    )
+    message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("support_ticket_message.id", ondelete="CASCADE"), unique=True
+    )
+    name: Mapped[str] = mapped_column(String(160))
+    size: Mapped[int]
+    content: Mapped[bytes] = mapped_column(LargeBinary)
