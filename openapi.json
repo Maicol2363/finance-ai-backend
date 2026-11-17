@@ -374,6 +374,16 @@
       "AgentTicketCreate": {
         "additionalProperties": false,
         "properties": {
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "category": {
             "enum": [
               "general",
@@ -412,9 +422,87 @@
         "title": "AgentTicketCreate",
         "type": "object"
       },
+      "AttachmentDownload": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "AttachmentDownload",
+        "type": "object"
+      },
+      "AttachmentInput": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 2796204,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "content"
+        ],
+        "title": "AttachmentInput",
+        "type": "object"
+      },
+      "AttachmentSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "name",
+          "size"
+        ],
+        "title": "AttachmentSummary",
+        "type": "object"
+      },
       "AuditCatalogView": {
         "additionalProperties": false,
         "properties": {
+          "actor_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Actor Roles",
+            "type": "array"
+          },
           "default_time_zone": {
             "title": "Default Time Zone",
             "type": "string"
@@ -471,6 +559,7 @@
           "event_types",
           "outcomes",
           "target_types",
+          "actor_roles",
           "time_zones",
           "default_time_zone",
           "max_query_days",
@@ -560,6 +649,18 @@
             "description": "Historical actor identifier; null when unknown.",
             "title": "Actor Id"
           },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Role the actor held when the event was recorded; null when not recorded.",
+            "title": "Actor Role"
+          },
           "context": {
             "additionalProperties": {
               "type": "string"
@@ -627,6 +728,7 @@
           "event_type",
           "outcome",
           "actor_id",
+          "actor_role",
           "target_type",
           "target_id",
           "correlation_id",
@@ -648,6 +750,17 @@
               }
             ],
             "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
           },
           "correlation_id": {
             "anyOf": [
@@ -722,6 +835,18 @@
             ],
             "description": "Historical actor identifier; null when unknown.",
             "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Role the actor held when the event was recorded; null when not recorded.",
+            "title": "Actor Role"
           },
           "context": {
             "additionalProperties": {
@@ -799,6 +924,7 @@
           "event_type",
           "outcome",
           "actor_id",
+          "actor_role",
           "target_type",
           "target_id",
           "correlation_id",
@@ -1010,6 +1136,23 @@
               }
             ],
             "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "support_agent",
+                  "admin",
+                  "security_auditor"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
           },
           "correlation_id": {
             "anyOf": [
@@ -2198,6 +2341,14 @@
       },
       "CustomerConversation": {
         "properties": {
+          "attachments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummary"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/TicketMessage"
@@ -3803,6 +3954,16 @@
       "MessageCreate": {
         "additionalProperties": false,
         "properties": {
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "body": {
             "maxLength": 4000,
             "minLength": 1,
@@ -4867,6 +5028,14 @@
       },
       "StaffConversation": {
         "properties": {
+          "attachments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummary"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
           "customer": {
             "$ref": "#/components/schemas/CustomerMetadata"
           },
@@ -5740,6 +5909,16 @@
       "TicketCreate": {
         "additionalProperties": false,
         "properties": {
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "category": {
             "enum": [
               "general",
@@ -13751,6 +13930,30 @@
               ],
               "title": "Correlation Id"
             }
+          },
+          {
+            "description": "Role the actor held when the event was recorded.",
+            "in": "query",
+            "name": "actor_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "user",
+                    "support_agent",
+                    "admin",
+                    "security_auditor"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Role the actor held when the event was recorded.",
+              "title": "Actor Role"
+            }
           }
         ],
         "responses": {
@@ -14308,6 +14511,30 @@
                 }
               ],
               "title": "Correlation Id"
+            }
+          },
+          {
+            "description": "Role the actor held when the event was recorded.",
+            "in": "query",
+            "name": "actor_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "user",
+                    "support_agent",
+                    "admin",
+                    "security_auditor"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Role the actor held when the event was recorded.",
+              "title": "Actor Role"
             }
           }
         ],
@@ -15403,6 +15630,61 @@
         ]
       }
     },
+    "/api/v1/staff/support/tickets/{ticket_id}/attachments/{attachment_id}": {
+      "get": {
+        "operationId": "download_attachment_api_v1_staff_support_tickets__ticket_id__attachments__attachment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Attachment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentDownload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Attachment",
+        "tags": [
+          "Staff support tickets"
+        ]
+      }
+    },
     "/api/v1/staff/support/tickets/{ticket_id}/claim": {
       "post": {
         "operationId": "claim_ticket_api_v1_staff_support_tickets__ticket_id__claim_post",
@@ -15746,6 +16028,66 @@
           }
         ],
         "summary": "Read Ticket",
+        "tags": [
+          "Customer support tickets"
+        ]
+      }
+    },
+    "/api/v1/support/tickets/{ticket_id}/attachments/{attachment_id}": {
+      "get": {
+        "operationId": "download_attachment_api_v1_support_tickets__ticket_id__attachments__attachment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "title": "Attachment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentDownload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Download Attachment",
         "tags": [
           "Customer support tickets"
         ]

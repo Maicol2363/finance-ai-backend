@@ -28,6 +28,9 @@ AuditTargetType = Literal[
     "staff_session",
     "support_ticket",
 ]
+# The four fixed authorization roles, as recorded on each event at the time it happened.
+AuditActorRole = Literal["user", "support_agent", "admin", "security_auditor"]
+AUDIT_ACTOR_ROLES: Final[tuple[str, ...]] = ("user", "support_agent", "admin", "security_auditor")
 
 DEFAULT_TIME_ZONE: Final[TimeZoneName] = "America/Bogota"
 # Colombia has observed UTC-05:00 without daylight saving time since 1993, so the
@@ -113,8 +116,11 @@ PROJECTED_CONTEXT_KEYS: Final[frozenset[str]] = frozenset(
         "filter_target_type",
         "filter_target_id",
         "filter_correlation_id",
+        "filter_actor_role",
         "previous_role",
         "new_role",
+        "channel",
+        "platform",
     }
 )
 _MAX_PROJECTED_VALUE_LENGTH: Final = 128
@@ -173,6 +179,7 @@ class AuditFilters:
     target_type: str | None = None
     target_id: str | None = None
     correlation_id: str | None = None
+    actor_role: str | None = None
 
     def __post_init__(self) -> None:
         if self.target_id is not None and self.target_type is None:
@@ -185,6 +192,7 @@ class AuditFilters:
             "event_type": self.event_type,
             "outcome": self.outcome,
             "actor_id": self.actor_id,
+            "actor_role": self.actor_role,
             "target_type": self.target_type,
             "target_id": self.target_id,
             "correlation_id": self.correlation_id,

@@ -59,6 +59,8 @@ def scope_conditions(
         conditions.append(Event.result == filters.outcome)
     if filters.actor_id is not None:
         conditions.append(Event.actor_id == filters.actor_id)
+    if filters.actor_role is not None:
+        conditions.append(Event.actor_role == filters.actor_role)
     if filters.target_type is not None:
         conditions.append(Event.target_resource_type == filters.target_type)
     if filters.target_id is not None:

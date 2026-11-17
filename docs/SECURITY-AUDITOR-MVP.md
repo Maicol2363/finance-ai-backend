@@ -22,13 +22,15 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
 - Solo `security_auditor` activo, con activación autorizada y sesión **verificada con MFA** usa
   `/staff/audit/*`. Cada solicitud vuelve a comprobar cuenta activa, rol actual, activación y MFA;
   la suspensión o la pérdida del rol revocan la sesión existente de inmediato.
-- `support_agent` recibe 403 en Auditoría y se registra `access.denied` (sin contenido de la
-  solicitud). `security_auditor` recibe 403 en Soporte con el mismo registro.
-- `admin` sigue sin acceso al portal del personal (sus historias ADM no están implementadas).
+- `support_agent` y `admin` reciben 403 en Auditoría y se registra `access.denied` (sin contenido de
+  la solicitud), aunque el administrador tenga su sesión verificada con MFA: el rol por sí solo niega.
+  `security_auditor` recibe 403 en Soporte y en Administración con el mismo registro.
+- Fuera de la demo, el auditor se crea con una invitación del Administrador (ADM-03, página
+  `/activate`); ver `docs/ADMINISTRATOR-MVP.md`.
 - `security_auditor` no puede autenticarse en la API de clientes (login, refresh y resolución de
   sesión): no accede a funciones de usuario Free/Premium ni a datos financieros.
 - Una sesión emitida antes de asignar el rol de auditor nunca obtiene autoridad: no tiene marca de MFA.
-- En la web cada rol solo ve su espacio; la otra sección muestra “no corresponde a tu rol” sin pedir
+- En la web cada rol solo ve su espacio; la otra sección muestra “No tienes permisos para acceder a estas funciones” sin pedir
   datos. Es presentación: la autorización real ocurre en el backend.
 
 ## MFA (consumidor de SEC-01 para el Auditor)
@@ -44,8 +46,9 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
 - Límites: 5 intentos fallidos por reto (configurable) y 10 intentos/minuto por cliente.
 - Eventos SEC-02: `auth.mfa_enrolled`, `auth.mfa_success`, `auth.mfa_failed` y `auth.login_success`
   (solo tras contraseña + MFA). `auth.mfa_success` no se cuenta como inicio de sesión.
-- Fuera de este alcance (SEC-01 compartido): recuperación/reemplazo del autenticador y MFA del
-  administrador. Un autenticador perdido requiere hoy intervención controlada en el backend.
+- La recuperación y el reemplazo del autenticador (SEC-01 compartido con el administrador) están en
+  `staff_auth/recovery.py` y la página `/recover`; sin ninguna prueba de identidad, un operador usa
+  `scripts/admin_ops.py reset-mfa`. Ver `docs/ADMINISTRATOR-MVP.md`.
 
 ## Reglas de consulta
 
@@ -58,6 +61,59 @@ Todo es de solo lectura sobre la evidencia: no existe API de actualización o bo
 - Proyección con lista blanca (`reason`, `resource`, metadatos del informe…); nunca contraseñas,
   tokens, secretos MFA, datos financieros ni cuerpos de solicitudes.
 - Un fallo de consulta es un error (`audit_query_unavailable`), nunca un resultado vacío.
+
+### Rol del actor (migración 0021)
+
+- Cada evento guarda `actor_role`: el rol que tenía el actor **en el momento del evento**. Lo calcula
+  PostgreSQL con un trigger `BEFORE INSERT` a partir de la cuenta del actor; cualquier valor enviado
+  por la aplicación se reemplaza, así que no se puede falsear, y un cambio de rol posterior no
+  reescribe la historia. Sin actor, con un actor no numérico o sin cuenta, queda nulo.
+- Los eventos anteriores a la migración quedan con rol nulo («No registrado»): la tabla es
+  *append-only* y no se rellena hacia atrás.
+- Filtro `actor_role` (`user`, `support_agent`, `admin`, `security_auditor`) en lista, resumen e
+  informe; el catálogo publica `actor_roles`. Los eventos sin rol registrado no coinciden con ningún
+  rol. El PDF muestra el rol junto al actor y el filtro aplicado (`filter_actor_role`).
+
+### Rutinas de base de datos (migraciones 0018, 0021 y 0022)
+
+Cada rutina hace cumplir dentro de PostgreSQL una regla que la aplicación ya sigue; ninguna agrega
+funciones nuevas.
+
+| Rutina | Tipo | Qué garantiza | Requisito |
+|---|---|---|---|
+| `security_audit_event_append_only` (0018) | Trigger | La evidencia no se modifica ni se borra | SEC-02 |
+| `security_audit_event_actor_role` (0021) | Trigger | El rol del actor se calcula al insertar y no se puede falsear | AUD-01 a AUD-04 |
+| `staff_mfa_challenge_one_time_guard` (0022) | Trigger | Un reto consumido no se reabre; no cambia de cuenta, token ni vencimiento; los intentos fallidos no bajan | SEC-01 (inicio de sesión del auditor) |
+| `admin_totp_factor_replay_guard` (0022) | Trigger | El último paso TOTP aceptado nunca retrocede, el secreto no cambia y un autenticador desactivado no se reactiva | SEC-01 (antirreplay) |
+| `sp_audit_record_report_export` (0022) | Procedimiento | Con la cuenta del auditor bloqueada en modo compartido, vuelve a comprobar que es un `security_auditor` activo con activación válida y registra `audit.report_exported` en la misma transacción | AUD-04 |
+| `sp_audit_record_access_denied` (0022) | Procedimiento | Registra `access.denied` con forma fija a partir de un recurso y un motivo enumerados; ningún contenido de la solicitud llega a la evidencia | Control de roles |
+
+Si el procedimiento de exportación rechaza la autoridad (`SQLSTATE 42501`), el PDF no se entrega
+(403). En producción `get_audit_report_service` usa `ProcedureExportRecorder`; las pruebas
+unitarias sobre SQLite usan el registrador basado en el escritor.
+
+### Inicios de sesión de la app de clientes
+
+La API de clientes (app Flutter en Android y Windows) registra los eventos aprobados de SEC-02:
+
+| Evento | Cuándo | Actor | Contexto |
+|---|---|---|---|
+| `auth.login_success` (success) | Sesión emitida; en la misma transacción | Cuenta | `channel=customer_app`, `platform` |
+| `auth.login_failed` (failure) | Cuenta desconocida o contraseña incorrecta (`reason=invalid_credentials`) | Cuenta si existe; si no, nulo | `reason`, `channel`, `platform` |
+| `auth.login_failed` (denied) | Cuenta inactiva (`account_inactive`) o rol sin acceso a la API de clientes (`role_not_permitted`) | Cuenta | `reason`, `channel`, `platform` |
+| `auth.logout` (success) | Cierre de sesión que revoca una sesión activa | Cuenta | `channel`, `platform` |
+
+Nunca se registran el correo ni la contraseña. El cliente sigue recibiendo el mismo error genérico; si
+el registro de un intento fallido no se puede guardar, se anota en el log y la respuesta no cambia.
+Estos eventos entran en las métricas «Inicios de sesión exitosos/fallidos».
+
+### Convenciones de la página (staff web)
+
+Nombres de evento legibles junto a su código exacto; origen («App de clientes · Android») y rol bajo el
+actor; enlaces en actor y correlación para filtrar sin perder el periodo; periodos rápidos (Hoy, 7, 30
+y 90 días); ayuda bajo cada campo mientras tiene el foco; botón «Actualizar» y aviso de eventos nuevos
+cada 30 s cuando el periodo incluye hoy (la lista visible no cambia sola); estado vacío que sugiere
+ampliar el periodo o quitar filtros. Otro rol ve «No tienes permisos para acceder a estas funciones».
 
 ### Mapeo de métricas (AUD-03 y PDF)
 

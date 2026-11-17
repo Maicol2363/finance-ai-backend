@@ -37,6 +37,8 @@ PERIOD = {"start_date": "2026-10-01", "end_date": "2026-10-14"}
 ROLES = {
     "auditor-access": StaffSessionUser(id=5, email="auditor@example.test", role="security_auditor"),
     "agent-access": StaffSessionUser(id=6, email="agent@example.test", role="support_agent"),
+    # Resolved as a fully authorized administrator (active, MFA-verified): the role alone denies.
+    "admin-access": StaffSessionUser(id=7, email="admin@example.test", role="admin"),
 }
 
 
@@ -128,6 +130,11 @@ def test_active_auditor_reads_sanitized_events_and_details(harness: Harness) -> 
 
 
 @pytest.mark.parametrize(
+    ("access", "actor_id"),
+    [("agent-access", 6), ("admin-access", 7)],
+    ids=["support_agent", "admin"],
+)
+@pytest.mark.parametrize(
     ("method", "path"),
     [
         ("get", "/api/v1/staff/audit/catalog"),
@@ -138,19 +145,22 @@ def test_active_auditor_reads_sanitized_events_and_details(harness: Harness) -> 
         ("post", "/api/v1/staff/audit/reports"),
     ],
 )
-def test_support_agent_cannot_use_any_auditor_function(
-    harness: Harness, method: str, path: str
+def test_other_staff_roles_cannot_use_any_auditor_function(
+    harness: Harness, access: str, actor_id: int, method: str, path: str
 ) -> None:
-    as_role(harness, "agent-access")
+    as_role(harness, access)
     if method == "get":
         response = harness.client.get(path, params=PERIOD, headers=GET_HEADERS)
     else:
         response = harness.client.post(path, json=PERIOD, headers=POST_HEADERS)
     assert response.status_code == 403
     assert response.json()["code"] == "staff_access_denied"
+    assert len(harness.denials.calls) == 1
     assert harness.denials.calls[-1]["resource"] == "security_audit"
     assert harness.denials.calls[-1]["reason"] == "role_not_permitted"
-    assert harness.denials.calls[-1]["actor_id"] == 6
+    assert harness.denials.calls[-1]["actor_id"] == actor_id
+    with harness.factory() as session:
+        assert session.scalar(select(SecurityAuditEvent.event_id)) is None
 
 
 def test_anonymous_revoked_and_cross_site_requests_are_rejected(harness: Harness) -> None:
@@ -227,6 +237,72 @@ def test_investigation_and_summary_endpoints(harness: Harness) -> None:
     assert metrics["role_changes"] == 1 and summary.json()["total_events"] == 2
     catalog = harness.client.get("/api/v1/staff/audit/catalog", headers=GET_HEADERS)
     assert catalog.status_code == 200 and catalog.json()["max_report_events"] == 2_000
+
+
+def test_events_summary_and_report_filter_by_the_role_recorded_on_each_event(
+    harness: Harness,
+) -> None:
+    day = datetime(2026, 10, 5, 12, tzinfo=UTC)
+    add_event(harness.factory, occurred_at=day, actor_id="15", actor_role="user")
+    add_event(harness.factory, occurred_at=day, actor_id="6", actor_role="support_agent")
+    add_event(harness.factory, occurred_at=day, actor_id="9", actor_role=None)
+    as_role(harness, "auditor-access")
+
+    catalog = harness.client.get("/api/v1/staff/audit/catalog", headers=GET_HEADERS)
+    assert catalog.json()["actor_roles"] == ["user", "support_agent", "admin", "security_auditor"]
+
+    everyone = harness.client.get("/api/v1/staff/audit/events", params=PERIOD, headers=GET_HEADERS)
+    assert sorted(str(item["actor_role"]) for item in everyone.json()["items"]) == [
+        "None",
+        "support_agent",
+        "user",
+    ]
+    customers = harness.client.get(
+        "/api/v1/staff/audit/events",
+        params={**PERIOD, "actor_role": "user"},
+        headers=GET_HEADERS,
+    )
+    assert customers.status_code == 200
+    assert [item["actor_id"] for item in customers.json()["items"]] == ["15"]
+    assert customers.json()["filters"] == {
+        "event_type": None,
+        "outcome": None,
+        "actor_id": None,
+        "actor_role": "user",
+        "target_type": None,
+        "target_id": None,
+        "correlation_id": None,
+    }
+
+    summary = harness.client.get(
+        "/api/v1/staff/audit/summary",
+        params={**PERIOD, "actor_role": "support_agent"},
+        headers=GET_HEADERS,
+    )
+    assert summary.json()["total_events"] == 1
+
+    unknown = harness.client.get(
+        "/api/v1/staff/audit/events",
+        params={**PERIOD, "actor_role": "superuser"},
+        headers=GET_HEADERS,
+    )
+    assert unknown.status_code == 422
+    assert "superuser" not in unknown.text
+
+    report = harness.client.post(
+        "/api/v1/staff/audit/reports",
+        json={**PERIOD, "actor_role": "user"},
+        headers=POST_HEADERS,
+    )
+    assert report.status_code == 200, report.text
+    assert report.headers["x-report-event-count"] == "1"
+    with harness.factory() as session:
+        exported = session.scalar(
+            select(SecurityAuditEvent).where(
+                SecurityAuditEvent.event_type == "audit.report_exported"
+            )
+        )
+    assert exported is not None and exported.context["filter_actor_role"] == "user"
 
 
 def test_report_download_is_a_pdf_with_metadata_and_recorded_export(harness: Harness) -> None:

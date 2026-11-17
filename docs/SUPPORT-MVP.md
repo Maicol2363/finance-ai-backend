@@ -11,6 +11,9 @@ Desde los checkouts hermanos `finance-ai-backend` y `finance-ai-frontend`:
 ```bash
 cd finance-ai-backend
 git switch codex/sup-01-backend
+# Clave local aleatoria de la base de la demo (nunca se guarda en el repositorio).
+# PowerShell: $env:SUPPORT_DEMO_DB_PASSWORD = [guid]::NewGuid().ToString('N')
+export SUPPORT_DEMO_DB_PASSWORD="$(python -c 'import secrets;print(secrets.token_urlsafe(24))')"
 docker compose -p finance-support-demo -f compose.support-demo.yaml up -d --build
 docker compose -p finance-support-demo -f compose.support-demo.yaml ps
 # Esperar a que el API esté healthy.
@@ -53,7 +56,9 @@ En un Android físico conectado por USB: `adb reverse tcp:8001 tcp:8001`, y
 `flutter run -d ID --dart-define=FINANCE_AI_API_BASE_URL=http://127.0.0.1:8001`.
 El puerto demo está limitado al loopback; PostgreSQL no se publica al host.
 
-Reiniciar **solamente** los datos ficticios (genera contraseñas nuevas):
+Reiniciar **solamente** los datos ficticios (genera contraseñas nuevas). Todos los comandos de
+`compose.support-demo.yaml` necesitan `SUPPORT_DEMO_DB_PASSWORD` definida; una demo creada antes de
+este cambio se reinicia así, con una clave nueva:
 
 ```bash
 cd finance-ai-backend

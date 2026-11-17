@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Protocol
 from uuid import UUID, uuid4
 
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from finance_ai.audit import repository
@@ -34,6 +38,101 @@ logger = get_logger(__name__)
 
 PdfRenderer = Callable[[ReportSnapshot], bytes]
 
+# PostgreSQL SQLSTATE raised by sp_audit_record_report_export when authority is gone.
+_INSUFFICIENT_PRIVILEGE = "42501"
+_RECORD_REPORT_EXPORT = text(
+    "CALL sp_audit_record_report_export("
+    ":auditor_id, :report_id, :correlation_id, :occurred_at, CAST(:context AS jsonb))"
+)
+
+
+class ExportEvidenceRecorder(Protocol):
+    """Durably records a successful AUD-04 export; raises StaffAccessDeniedError if denied."""
+
+    def record_export(
+        self,
+        *,
+        auditor_id: int,
+        report_id: UUID,
+        correlation_id: str,
+        occurred_at: datetime,
+        context: dict[str, str],
+    ) -> None: ...
+
+
+class ProcedureExportRecorder:
+    """Production recorder: ``sp_audit_record_report_export`` (migration 0022).
+
+    In one transaction the procedure share-locks the auditor's account, re-checks that it is an
+    active, authoritatively activated ``security_auditor`` and inserts ``audit.report_exported``,
+    so a suspension or role change cannot slip between the delivery check and the evidence.
+    """
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def record_export(
+        self,
+        *,
+        auditor_id: int,
+        report_id: UUID,
+        correlation_id: str,
+        occurred_at: datetime,
+        context: dict[str, str],
+    ) -> None:
+        SecurityAuditWriter.validate(
+            event_type="audit.report_exported",
+            result="success",
+            context=context,
+            target_type="audit_report",
+        )
+        try:
+            with self._session_factory() as session, session.begin():
+                session.execute(
+                    _RECORD_REPORT_EXPORT,
+                    {
+                        "auditor_id": auditor_id,
+                        "report_id": report_id,
+                        "correlation_id": correlation_id,
+                        "occurred_at": occurred_at,
+                        "context": json.dumps(context),
+                    },
+                )
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) == _INSUFFICIENT_PRIVILEGE:
+                raise StaffAccessDeniedError() from exc
+            raise
+
+
+class WriterExportRecorder:
+    """Writer-based recorder for databases without the stored procedure (SQLite unit tests)."""
+
+    def __init__(self, session_factory: sessionmaker[Session], writer: SecurityAuditWriter) -> None:
+        self._session_factory = session_factory
+        self._writer = writer
+
+    def record_export(
+        self,
+        *,
+        auditor_id: int,
+        report_id: UUID,
+        correlation_id: str,
+        occurred_at: datetime,
+        context: dict[str, str],
+    ) -> None:
+        del occurred_at  # The writer stamps its own UTC time.
+        with self._session_factory() as session, session.begin():
+            self._writer.append(
+                session,
+                event_type="audit.report_exported",
+                actor_id=str(auditor_id),
+                target_id=str(report_id),
+                target_type="audit_report",
+                result="success",
+                correlation_id=correlation_id,
+                context=context,
+            )
+
 
 @dataclass(frozen=True)
 class GeneratedReport:
@@ -52,12 +151,15 @@ class AuditReportService:
         *,
         max_events: int,
         renderer: PdfRenderer = render_report_pdf,
+        export_recorder: ExportEvidenceRecorder | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._writer = writer
         self._clock = clock
         self._max_events = max_events
         self._renderer = renderer
+        # Production wiring passes ProcedureExportRecorder (see audit.dependencies).
+        self._export_recorder = export_recorder or WriterExportRecorder(session_factory, writer)
 
     def export(
         self,
@@ -85,17 +187,15 @@ class AuditReportService:
         # The export event is written after (and outside) the snapshot it describes, and
         # durable evidence must exist before any successful PDF is returned.
         try:
-            with self._session_factory() as session, session.begin():
-                self._writer.append(
-                    session,
-                    event_type="audit.report_exported",
-                    actor_id=str(auditor.id),
-                    target_id=str(report_id),
-                    target_type="audit_report",
-                    result="success",
-                    correlation_id=correlation_id,
-                    context=_export_context(snapshot),
-                )
+            self._export_recorder.record_export(
+                auditor_id=auditor.id,
+                report_id=report_id,
+                correlation_id=correlation_id,
+                occurred_at=self._clock.now(),
+                context=_export_context(snapshot),
+            )
+        except StaffAccessDeniedError:
+            raise
         except Exception as exc:
             logger.error(
                 "Report delivery blocked because export evidence was not recorded",
@@ -138,6 +238,7 @@ class AuditReportService:
                         event_type=row.event_type,
                         outcome=row.result,
                         actor_id=row.actor_id,
+                        actor_role=row.actor_role,
                         target_type=row.target_resource_type,
                         target_id=row.target_resource_id,
                         correlation_id=row.correlation_id,

@@ -195,10 +195,17 @@ class RequestGuardMiddleware:
             or (method in {"POST", "PATCH"} and _is_staff_admin_path(path))
             or (method, path) in _ME_JSON_BODY
         )
+        is_support_write = method == "POST" and (
+            path == "/api/v1/support/tickets"
+            or path == "/api/v1/staff/support/tickets"
+            or ("/support/tickets/" in path and path.endswith("/messages"))
+        )
         is_receipt_upload = method == "POST" and _is_receipt_upload_path(path)
         body_limit = (
             self.max_body_bytes
             if guards_json_body
+            else 3 * 1024 * 1024
+            if is_support_write
             else MAX_RECEIPT_REQUEST_BODY_BYTES
             if is_receipt_upload
             else None
