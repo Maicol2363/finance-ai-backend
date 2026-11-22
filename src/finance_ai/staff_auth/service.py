@@ -154,7 +154,9 @@ class StaffSessionService:
                     ):
                         outcome = "denied"
                         self._write_login_denied(session, account.id, "ineligible", correlation_id)
-                    elif self._has_active_staff_session(session, account.id, now):
+                    elif role_name in MFA_REQUIRED_ROLES and self._has_active_staff_session(
+                        session, account.id, now
+                    ):
                         outcome = "conflict"
                         self._write_login_denied(
                             session, account.id, "session_exists", correlation_id

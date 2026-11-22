@@ -14,7 +14,6 @@ from finance_ai.core.errors import (
     StaffAccessDeniedError,
     StaffAuthenticationRequiredError,
     StaffLoginInvalidError,
-    StaffSessionExistsError,
     StaffSessionExpiredError,
     StaffSessionInvalidError,
 )
@@ -25,7 +24,7 @@ from finance_ai.db.models.identity import AppUser, Role
 from finance_ai.db.models.reference import Currency
 from finance_ai.db.models.sessions import RenewableCredential, UserSession
 from finance_ai.staff_auth.schemas import StaffLoginCommand
-from finance_ai.staff_auth.service import StaffSessionService
+from finance_ai.staff_auth.service import StaffMfaChallengeIssued, StaffSessionService
 
 
 class FrozenClock:
@@ -217,24 +216,25 @@ def test_login_fails_closed_for_admin_without_mfa_and_requires_activation_record
         assert all(event.result == "denied" for event in denied)
 
 
-def test_login_reports_conflict_without_replacing_live_staff_session(
+def test_support_agent_can_keep_two_independent_browser_sessions(
     service_setup: tuple[StaffSessionService, sessionmaker[Session], dict[str, int]],
 ) -> None:
-    service, factory, _ = service_setup
-    first = service.login(
-        StaffLoginCommand(email="agent@example.test", password="correct-password"),
-        correlation_id="first-login",
-    )
-    with pytest.raises(StaffSessionExistsError):
-        service.login(
-            StaffLoginCommand(email="agent@example.test", password="correct-password"),
-            correlation_id="second-login",
-        )
-    with factory() as session:
-        sessions = list(session.scalars(select(UserSession)))
-        assert len(sessions) == 1
-        assert sessions[0].revoked_at is None
-        assert sessions[0].access_token_hash != first[1]
+    service, _factory, _user_ids = service_setup
+    command = StaffLoginCommand(email="agent@example.test", password="correct-password")
+    first = service.login(command, correlation_id="first-login")
+    second = service.login(command, correlation_id="second-login")
+    assert not isinstance(first, StaffMfaChallengeIssued)
+    assert not isinstance(second, StaffMfaChallengeIssued)
+    assert first[1:3] != second[1:3]
+
+    assert service.session_projection(first[1], correlation_id="first-session")[0] == first[0]
+    assert service.session_projection(second[1], correlation_id="second-session")[0] == second[0]
+
+    service.logout(first[2], first[1], correlation_id="first-logout")
+    with pytest.raises(StaffSessionInvalidError):
+        service.session_projection(first[1], correlation_id="closed-session")
+    renewed = service.refresh(second[2], correlation_id="second-refresh")
+    assert service.session_projection(renewed[1], correlation_id="renewed-session")[0] == second[0]
 
 
 def test_refresh_rotates_once_and_replay_revokes_the_browser_session(
