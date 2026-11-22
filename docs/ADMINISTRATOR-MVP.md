@@ -211,9 +211,8 @@ simultáneas (30 rondas) que fallan con `DeadlockDetected` contra la versión an
 * Los tickets en progreso de una persona cuyo rol se cambia no se reasignan automáticamente.
 * El enlace de activación se muestra una sola vez al administrador (no hay proveedor de correo aprobado).
 * Los limitadores de tasa son en memoria por instancia, como los existentes.
-* Una cuenta del personal solo puede tener una sesión viva: iniciar sesión desde otro navegador se
-  rechaza con `staff_session_exists` hasta que la otra sesión cierre o venza por inactividad (15 min
-  para administradores). Es el comportamiento existente del portal; cerrar sesión en la pestaña libera
-  la cuenta.
+* Administradores y auditores de seguridad pueden tener una sola sesión activa por cuenta. El
+  portal devuelve `staff_session_exists` hasta que esa sesión se cierre o expire. Los agentes de
+  soporte pueden mantener sesiones simultáneas en distintos navegadores.
 * El trigger de auditoría bloquea `UPDATE`/`DELETE` por fila; impedir `TRUNCATE`/`DROP` del propietario
   requiere un rol de base de datos sin esos privilegios (despliegue).
